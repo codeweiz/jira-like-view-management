@@ -2,8 +2,10 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
+  ChevronUp,
   Columns3,
   Copy,
+  Filter,
   GanttChart,
   LayoutDashboard,
   List,
@@ -81,12 +83,14 @@ const sortOptions: { id: SortBy; label: string }[] = [
 ];
 
 /**
- * Three stacked layers (top → bottom):
+ * Three layers:
  *  1. Views only
- *  2. Search + filter controls + layout
- *  3. Active condition chips (when any filter is on)
+ *  2. Compact bar: search | 筛选▾ | group | sort | layout
+ *  3. Active condition chips
  *
- * Finite enums → chips; open-ended sets (user/label) → searchable multi-select.
+ * Expanded 筛选 panel (between 2 and 3):
+ *  - finite enums as chips (status / priority / type)
+ *  - open sets as searchable multi-select (assignee / labels)
  */
 export function Toolbar() {
   const views = useViewStore((s) => s.views);
@@ -114,6 +118,7 @@ export function Toolbar() {
   const filteredCount = useFilteredIssues().length;
   const activeFilters = countActiveFilters(draft.filters);
 
+  const [filterOpen, setFilterOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -191,21 +196,21 @@ export function Toolbar() {
 
   function assigneeSummary() {
     const n = draft.filters.assignees.length;
-    if (n === 0) return "经办人";
+    if (n === 0) return "全部";
     if (n === 1) {
       const id = draft.filters.assignees[0]!;
       if (id === "unassigned") return "未分配";
       if (id === CURRENT_USER_ID) return "当前用户";
       return USERS.find((u) => u.id === id)?.name ?? "1 人";
     }
-    return `经办人 · ${n}`;
+    return `已选 ${n}`;
   }
 
   function labelSummary() {
     const n = draft.filters.labels.length;
-    if (n === 0) return "标签";
+    if (n === 0) return "全部";
     if (n === 1) return draft.filters.labels[0]!;
-    return `标签 · ${n}`;
+    return `已选 ${n}`;
   }
 
   return (
@@ -397,7 +402,7 @@ export function Toolbar() {
         </div>
       </div>
 
-      {/* ── Layer 2: Search + filters + layout ── */}
+      {/* ── Layer 2: compact tools ── */}
       <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 sm:px-3">
         <div className="relative min-w-[140px] flex-1 sm:max-w-[220px]">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -409,205 +414,33 @@ export function Toolbar() {
           />
         </div>
 
-        {/* Finite: 状态 chips */}
-        <ChipGroup label="状态">
-          {STATUSES.map((s) => (
-            <FilterChip
-              key={s.id}
-              active={draft.filters.statuses.includes(s.id)}
-              onClick={() => toggleFilterValue("statuses", s.id as StatusId)}
-            >
-              <span
-                className="size-1.5 shrink-0 rounded-full"
-                style={{ background: s.color }}
-              />
-              {s.name}
-            </FilterChip>
-          ))}
-        </ChipGroup>
-
-        {/* Finite: 优先级 chips */}
-        <ChipGroup label="优先级">
-          {(Object.keys(PRIORITY_META) as Priority[]).map((p) => (
-            <FilterChip
-              key={p}
-              active={draft.filters.priorities.includes(p)}
-              onClick={() => toggleFilterValue("priorities", p)}
-            >
-              {PRIORITY_META[p].label}
-            </FilterChip>
-          ))}
-        </ChipGroup>
-
-        {/* Finite: 类型 chips */}
-        <ChipGroup label="类型">
-          {(Object.keys(TYPE_META) as IssueType[]).map((t) => (
-            <FilterChip
-              key={t}
-              active={draft.filters.types.includes(t)}
-              onClick={() => toggleFilterValue("types", t)}
-            >
-              {TYPE_META[t].label}
-            </FilterChip>
-          ))}
-        </ChipGroup>
-
-        {/* Open-ended: 经办人 multi-select */}
-        <DropdownMenu
-          onOpenChange={(o) => {
-            if (!o) setAssigneeQuery("");
-          }}
+        <Button
+          variant={filterOpen || activeFilters > 0 ? "secondary" : "outline"}
+          size="sm"
+          className="h-7 gap-1 px-2.5 text-xs"
+          onClick={() => setFilterOpen((o) => !o)}
         >
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn(
-                "h-7 gap-1 px-2.5 text-xs",
-                draft.filters.assignees.length > 0 &&
-                  "border-primary/30 bg-accent/40 text-accent-foreground",
-              )}
-            >
-              <UserRound className="size-3.5" />
-              {assigneeSummary()}
-              <ChevronDown className="size-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72 p-0">
-            <div className="border-b border-border p-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={assigneeQuery}
-                  onChange={(e) => setAssigneeQuery(e.target.value)}
-                  placeholder="姓名 / 拼音 / 首字母 csy"
-                  className="h-8 pl-7 text-xs"
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
-              </div>
-            </div>
-            <div className="max-h-72 overflow-y-auto py-1">
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
-                onClick={() => setFilterField("assignees", [CURRENT_USER_ID])}
-              >
-                <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <UserRound className="size-3.5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium">当前用户</span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    {currentUser.name} · {currentUser.py.toUpperCase()}
-                  </span>
-                </span>
-                {draft.filters.assignees.length === 1 &&
-                draft.filters.assignees[0] === CURRENT_USER_ID ? (
-                  <Check className="size-3.5 text-primary" />
-                ) : null}
-              </button>
-              <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={draft.filters.assignees.includes("unassigned")}
-                onCheckedChange={() => toggleFilterValue("assignees", "unassigned")}
-                onSelect={(e) => e.preventDefault()}
-              >
-                未分配
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
-                按拼音首字母 · 可搜 py
-              </DropdownMenuLabel>
-              {assigneesSorted.map((u) => (
-                <DropdownMenuCheckboxItem
-                  key={u.id}
-                  checked={draft.filters.assignees.includes(u.id)}
-                  onCheckedChange={() => toggleFilterValue("assignees", u.id)}
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  <span
-                    className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                    style={{ background: u.color }}
-                  >
-                    {u.initials}
-                  </span>
-                  <span className="flex-1">{u.name}</span>
-                  <span className="font-mono text-[10px] uppercase text-muted-foreground">
-                    {u.py}
-                  </span>
-                </DropdownMenuCheckboxItem>
-              ))}
-              {assigneesSorted.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                  无匹配用户
-                </div>
-              ) : null}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Open-ended: 标签 multi-select */}
-        <DropdownMenu
-          onOpenChange={(o) => {
-            if (!o) setLabelQuery("");
-          }}
-        >
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn(
-                "h-7 gap-1 px-2.5 text-xs",
-                draft.filters.labels.length > 0 &&
-                  "border-primary/30 bg-accent/40 text-accent-foreground",
-              )}
-            >
-              {labelSummary()}
-              <ChevronDown className="size-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56 p-0">
-            <div className="border-b border-border p-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={labelQuery}
-                  onChange={(e) => setLabelQuery(e.target.value)}
-                  placeholder="搜索标签…"
-                  className="h-8 pl-7 text-xs"
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
-              </div>
-            </div>
-            <div className="max-h-56 overflow-y-auto py-1">
-              {labelsFiltered.map((l) => (
-                <DropdownMenuCheckboxItem
-                  key={l}
-                  checked={draft.filters.labels.includes(l)}
-                  onCheckedChange={() => toggleFilterValue("labels", l)}
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  {l}
-                </DropdownMenuCheckboxItem>
-              ))}
-              {labelsFiltered.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                  无匹配标签
-                </div>
-              ) : null}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <div className="mx-0.5 hidden h-4 w-px bg-border sm:block" />
+          <Filter className="size-3.5" />
+          筛选
+          {activeFilters > 0 ? (
+            <span className="inline-flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+              {activeFilters}
+            </span>
+          ) : null}
+          {filterOpen ? (
+            <ChevronUp className="size-3.5 opacity-60" />
+          ) : (
+            <ChevronDown className="size-3.5 opacity-60" />
+          )}
+        </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
               <Layers className="size-3.5" />
-              <span className="hidden lg:inline">
+              <span className="hidden sm:inline">
                 {groupOptions.find((g) => g.id === draft.groupBy)?.label}
               </span>
-              <span className="lg:hidden">分组</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -627,10 +460,9 @@ export function Toolbar() {
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
               <ArrowUpDown className="size-3.5" />
-              <span className="hidden lg:inline">
+              <span className="hidden sm:inline">
                 {sortOptions.find((s) => s.id === draft.sortBy)?.label}
               </span>
-              <span className="lg:hidden">排序</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -698,6 +530,247 @@ export function Toolbar() {
           </div>
         </div>
       </div>
+
+      {/* ── Expanded filter panel (inside 筛选) ── */}
+      {filterOpen ? (
+        <div className="space-y-2.5 border-t border-border/70 bg-secondary/25 px-2.5 py-2.5 sm:px-3">
+          {/* Finite enums → chips */}
+          <FilterRow label="状态">
+            {STATUSES.map((s) => (
+              <ToggleChip
+                key={s.id}
+                active={draft.filters.statuses.includes(s.id)}
+                onClick={() => toggleFilterValue("statuses", s.id as StatusId)}
+              >
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: s.color }}
+                />
+                {s.name}
+              </ToggleChip>
+            ))}
+          </FilterRow>
+
+          <FilterRow label="优先级">
+            {(Object.keys(PRIORITY_META) as Priority[]).map((p) => (
+              <ToggleChip
+                key={p}
+                active={draft.filters.priorities.includes(p)}
+                onClick={() => toggleFilterValue("priorities", p)}
+              >
+                {PRIORITY_META[p].label}
+              </ToggleChip>
+            ))}
+          </FilterRow>
+
+          <FilterRow label="类型">
+            {(Object.keys(TYPE_META) as IssueType[]).map((t) => (
+              <ToggleChip
+                key={t}
+                active={draft.filters.types.includes(t)}
+                onClick={() => toggleFilterValue("types", t)}
+              >
+                {TYPE_META[t].label}
+              </ToggleChip>
+            ))}
+          </FilterRow>
+
+          {/* Open-ended → multi-select dropdowns in a compact row */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <FilterRow label="经办人" compact>
+              <DropdownMenu
+                onOpenChange={(o) => {
+                  if (!o) setAssigneeQuery("");
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-1 rounded-md border bg-card px-2.5 text-left text-xs font-medium",
+                      draft.filters.assignees.length > 0
+                        ? "border-primary/30 text-foreground"
+                        : "border-border text-muted-foreground",
+                    )}
+                  >
+                    <span className="truncate">{assigneeSummary()}</span>
+                    <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72 p-0">
+                  <div className="border-b border-border p-2">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={assigneeQuery}
+                        onChange={(e) => setAssigneeQuery(e.target.value)}
+                        placeholder="姓名 / 拼音 / 首字母 csy"
+                        className="h-8 pl-7 text-xs"
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto py-1">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
+                      onClick={() => setFilterField("assignees", [CURRENT_USER_ID])}
+                    >
+                      <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <UserRound className="size-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">当前用户</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          {currentUser.name} · {currentUser.py.toUpperCase()}
+                        </span>
+                      </span>
+                      {draft.filters.assignees.length === 1 &&
+                      draft.filters.assignees[0] === CURRENT_USER_ID ? (
+                        <Check className="size-3.5 text-primary" />
+                      ) : null}
+                    </button>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem
+                      checked={draft.filters.assignees.includes("unassigned")}
+                      onCheckedChange={() =>
+                        toggleFilterValue("assignees", "unassigned")
+                      }
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      未分配
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
+                      按拼音首字母 · 可搜 py
+                    </DropdownMenuLabel>
+                    {assigneesSorted.map((u) => (
+                      <DropdownMenuCheckboxItem
+                        key={u.id}
+                        checked={draft.filters.assignees.includes(u.id)}
+                        onCheckedChange={() => toggleFilterValue("assignees", u.id)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        <span
+                          className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                          style={{ background: u.color }}
+                        >
+                          {u.initials}
+                        </span>
+                        <span className="flex-1">{u.name}</span>
+                        <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                          {u.py}
+                        </span>
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                    {assigneesSorted.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        无匹配用户
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </FilterRow>
+
+            <FilterRow label="标签" compact>
+              <DropdownMenu
+                onOpenChange={(o) => {
+                  if (!o) setLabelQuery("");
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-1 rounded-md border bg-card px-2.5 text-left text-xs font-medium",
+                      draft.filters.labels.length > 0
+                        ? "border-primary/30 text-foreground"
+                        : "border-border text-muted-foreground",
+                    )}
+                  >
+                    <span className="truncate">{labelSummary()}</span>
+                    <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56 p-0">
+                  <div className="border-b border-border p-2">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={labelQuery}
+                        onChange={(e) => setLabelQuery(e.target.value)}
+                        placeholder="搜索标签…"
+                        className="h-8 pl-7 text-xs"
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto py-1">
+                    {labelsFiltered.map((l) => (
+                      <DropdownMenuCheckboxItem
+                        key={l}
+                        checked={draft.filters.labels.includes(l)}
+                        onCheckedChange={() => toggleFilterValue("labels", l)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {l}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                    {labelsFiltered.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        无匹配标签
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </FilterRow>
+
+            <FilterRow label="关键字" compact>
+              <Input
+                value={draft.filters.search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="摘要、键值、描述…"
+                className="h-7 text-xs"
+              />
+            </FilterRow>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-1.5 pt-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setFilterOpen(false)}
+            >
+              收起
+            </Button>
+            {activeFilters > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => clearFilters()}
+              >
+                重置条件
+              </Button>
+            ) : null}
+            {dirty ? (
+              <Button size="sm" className="h-7 text-xs" onClick={() => saveDraftToView()}>
+                更新视图
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setCreateOpen(true)}
+            >
+              另存为视图
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── Layer 3: Active conditions ── */}
       {activeFilters > 0 ? (
@@ -827,18 +900,26 @@ export function Toolbar() {
   );
 }
 
-function ChipGroup({ label, children }: { label: string; children: ReactNode }) {
+function FilterRow({
+  label,
+  children,
+  compact,
+}: {
+  label: string;
+  children: ReactNode;
+  compact?: boolean;
+}) {
   return (
-    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
-      <span className="hidden shrink-0 text-[11px] text-muted-foreground xl:inline">
+    <div className={cn("flex min-w-0 items-start gap-2", compact && "items-center")}>
+      <div className="w-12 shrink-0 pt-1 text-right text-xs text-muted-foreground">
         {label}
-      </span>
-      {children}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-wrap gap-1">{children}</div>
     </div>
   );
 }
 
-function FilterChip({
+function ToggleChip({
   active,
   onClick,
   children,
