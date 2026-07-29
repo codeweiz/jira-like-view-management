@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import {
   type GroupBy,
   type Issue,
@@ -96,6 +97,10 @@ export function sortIssues(
   });
 }
 
+export function isSystemView(view: SavedView | undefined | null): boolean {
+  return view?.scope === "system";
+}
+
 interface ViewStore {
   issues: Issue[];
   views: SavedView[];
@@ -125,12 +130,15 @@ interface ViewStore {
   selectIssue: (id: string | null) => void;
   updateIssue: (id: string, patch: Partial<Issue>) => void;
   createView: (input: { name: string; description?: string; type: ViewType }) => string;
+  /** Save draft onto current view — blocked for system views */
   saveDraftToView: () => void;
   renameView: (id: string, name: string) => void;
   deleteView: (id: string) => void;
   duplicateView: (id: string) => string;
   toggleStar: (id: string) => void;
   setDefaultView: (id: string) => void;
+  /** Drag-reorder. Star is badge-only; order is fully manual. */
+  reorderViews: (fromId: string, toId: string) => void;
   setSidebarOpen: (open: boolean) => void;
   resetDemo: () => void;
 }
@@ -273,6 +281,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       name,
       description,
       type,
+      scope: "personal",
       starred: false,
       groupBy: base.groupBy,
       sortBy: base.sortBy,
@@ -302,13 +311,21 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
   saveDraftToView: () => {
     const { activeViewId, draft, views } = get();
     const existing = views.find((v) => v.id === activeViewId);
+    if (!existing) return;
+    if (existing.scope === "system") {
+      toast.message("系统视图不可修改", {
+        description: "请使用「另存」保存为你的私有视图",
+      });
+      return;
+    }
     const updated = deepCloneView({
       ...draft,
       id: activeViewId,
-      name: existing?.name ?? draft.name,
-      description: existing?.description ?? draft.description,
-      starred: existing?.starred ?? draft.starred,
-      isDefault: existing?.isDefault,
+      name: existing.name,
+      description: existing.description,
+      scope: "personal",
+      starred: existing.starred,
+      isDefault: existing.isDefault,
       updatedAt: nowIso(),
     });
     set({
@@ -318,17 +335,32 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
     });
   },
 
-  renameView: (id, name) =>
+  renameView: (id, name) => {
+    const target = get().views.find((v) => v.id === id);
+    if (!target) return;
+    if (target.scope === "system") {
+      toast.message("系统视图不可重命名", {
+        description: "可另存为私有视图后再命名",
+      });
+      return;
+    }
     set((s) => ({
       views: s.views.map((v) =>
         v.id === id ? { ...v, name, updatedAt: nowIso() } : v,
       ),
       draft:
         s.activeViewId === id ? { ...s.draft, name, updatedAt: nowIso() } : s.draft,
-    })),
+    }));
+  },
 
   deleteView: (id) => {
     const { views, activeViewId } = get();
+    const target = views.find((v) => v.id === id);
+    if (!target) return;
+    if (target.scope === "system") {
+      toast.message("系统视图不可删除");
+      return;
+    }
     if (views.length <= 1) return;
     const next = views.filter((v) => v.id !== id);
     const switching = activeViewId === id;
@@ -351,6 +383,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       ...src,
       id: newId,
       name: `${src.name} (副本)`,
+      scope: "personal",
       starred: false,
       isDefault: false,
       createdAt: nowIso(),
@@ -382,6 +415,19 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
         isDefault: v.id === id,
       })),
     })),
+
+  reorderViews: (fromId, toId) => {
+    if (fromId === toId) return;
+    set((s) => {
+      const list = [...s.views];
+      const from = list.findIndex((v) => v.id === fromId);
+      const to = list.findIndex((v) => v.id === toId);
+      if (from < 0 || to < 0) return s;
+      const [item] = list.splice(from, 1);
+      list.splice(to, 0, item!);
+      return { views: list };
+    });
+  },
 
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
 

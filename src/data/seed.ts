@@ -4,15 +4,15 @@ export type StatusId = "backlog" | "todo" | "in_progress" | "review" | "done";
 export type ViewType = "board" | "list" | "timeline";
 export type GroupBy = "none" | "status" | "assignee" | "priority" | "type";
 export type SortBy = "key" | "priority" | "updated" | "created" | "title";
+/** system = org-wide, locked; personal = private, editable */
+export type ViewScope = "system" | "personal";
 
 export interface User {
   id: string;
   name: string;
   initials: string;
   color: string;
-  /** Full pinyin without tones (lowercase, spaced) */
   pinyin: string;
-  /** Initials e.g. csy */
   py: string;
 }
 
@@ -54,6 +54,8 @@ export interface SavedView {
   name: string;
   description?: string;
   type: ViewType;
+  /** system views are read-only; personal are editable */
+  scope: ViewScope;
   starred: boolean;
   isDefault?: boolean;
   groupBy: GroupBy;
@@ -73,56 +75,17 @@ export const STATUSES: Status[] = [
   { id: "done", name: "已完成", category: "done", color: "#216e4e" },
 ];
 
-/** Demo logged-in user — 「当前用户」 shortcut */
 export const CURRENT_USER_ID = "u1";
 
 const USERS_RAW: User[] = [
-  {
-    id: "u1",
-    name: "陈思远",
-    initials: "陈",
-    color: "#0c66e4",
-    pinyin: "chen siyuan",
-    py: "csy",
-  },
-  {
-    id: "u2",
-    name: "林婉清",
-    initials: "林",
-    color: "#216e4e",
-    pinyin: "lin wanqing",
-    py: "lwq",
-  },
-  {
-    id: "u3",
-    name: "赵明轩",
-    initials: "赵",
-    color: "#c9372c",
-    pinyin: "zhao mingxuan",
-    py: "zmx",
-  },
-  {
-    id: "u4",
-    name: "周雨桐",
-    initials: "周",
-    color: "#974f0c",
-    pinyin: "zhou yutong",
-    py: "zyt",
-  },
-  {
-    id: "u5",
-    name: "吴启航",
-    initials: "吴",
-    color: "#227d9b",
-    pinyin: "wu qihang",
-    py: "wqh",
-  },
+  { id: "u1", name: "陈思远", initials: "陈", color: "#0c66e4", pinyin: "chen siyuan", py: "csy" },
+  { id: "u2", name: "林婉清", initials: "林", color: "#216e4e", pinyin: "lin wanqing", py: "lwq" },
+  { id: "u3", name: "赵明轩", initials: "赵", color: "#c9372c", pinyin: "zhao mingxuan", py: "zmx" },
+  { id: "u4", name: "周雨桐", initials: "周", color: "#974f0c", pinyin: "zhou yutong", py: "zyt" },
+  { id: "u5", name: "吴启航", initials: "吴", color: "#227d9b", pinyin: "wu qihang", py: "wqh" },
 ];
 
-/** Sorted by pinyin initials for faster scanning */
-export const USERS: User[] = [...USERS_RAW].sort((a, b) =>
-  a.py.localeCompare(b.py),
-);
+export const USERS: User[] = [...USERS_RAW].sort((a, b) => a.py.localeCompare(b.py));
 
 export const PRIORITY_META: Record<
   Priority,
@@ -489,6 +452,7 @@ export const SEED_VIEWS: SavedView[] = [
     name: "项目看板",
     description: "全部工作项 · 看板布局",
     type: "board",
+    scope: "system",
     starred: true,
     isDefault: true,
     groupBy: "none",
@@ -504,6 +468,7 @@ export const SEED_VIEWS: SavedView[] = [
     name: "我的待办",
     description: "指派给我且未完成的工作项",
     type: "list",
+    scope: "system",
     starred: true,
     groupBy: "status",
     sortBy: "priority",
@@ -522,6 +487,7 @@ export const SEED_VIEWS: SavedView[] = [
     name: "冲刺焦点",
     description: "高优先级进行中事项",
     type: "board",
+    scope: "system",
     starred: true,
     groupBy: "none",
     sortBy: "priority",
@@ -540,6 +506,7 @@ export const SEED_VIEWS: SavedView[] = [
     name: "缺陷跟踪",
     description: "所有缺陷 · 按状态分组",
     type: "list",
+    scope: "system",
     starred: false,
     groupBy: "status",
     sortBy: "priority",
@@ -557,6 +524,7 @@ export const SEED_VIEWS: SavedView[] = [
     name: "交付时间线",
     description: "有截止日期的工作项",
     type: "timeline",
+    scope: "system",
     starred: false,
     groupBy: "none",
     sortBy: "updated",
@@ -569,8 +537,9 @@ export const SEED_VIEWS: SavedView[] = [
   {
     id: "v-backend",
     name: "后端工作流",
-    description: "后端相关 · 列表",
+    description: "我的后端相关列表",
     type: "list",
+    scope: "personal",
     starred: false,
     groupBy: "assignee",
     sortBy: "updated",

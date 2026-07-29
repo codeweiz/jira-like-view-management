@@ -5,6 +5,7 @@ import {
   ChevronUp,
   Columns3,
   Copy,
+  Eraser,
   Filter,
   GanttChart,
   LayoutDashboard,
@@ -16,6 +17,7 @@ import {
   ArrowUpDown,
   Layers,
   LayoutList,
+  Lock,
   Star,
   Trash2,
   UserRound,
@@ -56,7 +58,7 @@ import {
   type ViewType,
   type IssueType,
 } from "@/data/seed";
-import { countActiveFilters, useViewStore } from "@/store/view-store";
+import { countActiveFilters, isSystemView, useViewStore } from "@/store/view-store";
 import { useFilteredIssues } from "@/hooks/use-filtered-issues";
 import { cn } from "@/lib/utils";
 
@@ -85,13 +87,6 @@ const sortOptions: { id: SortBy; label: string }[] = [
 type ViewOverflowMode = "scroll" | "wrap";
 const VIEW_OVERFLOW_KEY = "vb-view-overflow";
 
-/**
- * Layers:
- *  1. Full-width views + fixed 总览
- *  2. Search | 筛选 | group | sort | layout
- *  3. Expanded filter panel (optional)
- *  4. Merged active condition chips
- */
 export function Toolbar() {
   const views = useViewStore((s) => s.views);
   const activeViewId = useViewStore((s) => s.activeViewId);
@@ -114,9 +109,12 @@ export function Toolbar() {
   const duplicateView = useViewStore((s) => s.duplicateView);
   const toggleStar = useViewStore((s) => s.toggleStar);
   const setDefaultView = useViewStore((s) => s.setDefaultView);
+  const reorderViews = useViewStore((s) => s.reorderViews);
 
   const filteredCount = useFilteredIssues().length;
   const activeFilters = countActiveFilters(draft.filters);
+  const activeView = views.find((v) => v.id === activeViewId);
+  const systemActive = isSystemView(activeView);
 
   const [filterOpen, setFilterOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
@@ -128,6 +126,8 @@ export function Toolbar() {
   const [assigneeQuery, setAssigneeQuery] = useState("");
   const [labelQuery, setLabelQuery] = useState("");
   const [overflowMode, setOverflowMode] = useState<ViewOverflowMode>("scroll");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -147,11 +147,8 @@ export function Toolbar() {
     }
   }
 
-  const orderedViews = useMemo(() => {
-    const starred = views.filter((v) => v.starred);
-    const rest = views.filter((v) => !v.starred);
-    return [...starred, ...rest];
-  }, [views]);
+  /** Display order = array order (manual drag). Star is badge only. */
+  const orderedViews = views;
 
   const filteredViewList = useMemo(() => {
     const q = viewQuery.trim().toLowerCase();
@@ -184,48 +181,43 @@ export function Toolbar() {
 
   const currentUser = USERS.find((u) => u.id === CURRENT_USER_ID)!;
 
-  /** Merge same-type active filters into one chip text each */
   const activeGroups = useMemo(() => {
     const groups: { key: string; label: string; onClear: () => void }[] = [];
     if (draft.filters.statuses.length) {
-      const names = draft.filters.statuses
-        .map((id) => STATUSES.find((s) => s.id === id)?.name ?? id)
-        .join("、");
       groups.push({
         key: "statuses",
-        label: `状态：${names}`,
+        label: `状态：${draft.filters.statuses
+          .map((id) => STATUSES.find((s) => s.id === id)?.name ?? id)
+          .join("、")}`,
         onClear: () => setFilterField("statuses", []),
       });
     }
     if (draft.filters.priorities.length) {
-      const names = draft.filters.priorities
-        .map((p) => PRIORITY_META[p].label)
-        .join("、");
       groups.push({
         key: "priorities",
-        label: `优先级：${names}`,
+        label: `优先级：${draft.filters.priorities
+          .map((p) => PRIORITY_META[p].label)
+          .join("、")}`,
         onClear: () => setFilterField("priorities", []),
       });
     }
     if (draft.filters.types.length) {
-      const names = draft.filters.types.map((t) => TYPE_META[t].label).join("、");
       groups.push({
         key: "types",
-        label: `类型：${names}`,
+        label: `类型：${draft.filters.types.map((t) => TYPE_META[t].label).join("、")}`,
         onClear: () => setFilterField("types", []),
       });
     }
     if (draft.filters.assignees.length) {
-      const names = draft.filters.assignees
-        .map((id) => {
-          if (id === "unassigned") return "未分配";
-          if (id === CURRENT_USER_ID) return `当前用户(${currentUser.name})`;
-          return USERS.find((u) => u.id === id)?.name ?? id;
-        })
-        .join("、");
       groups.push({
         key: "assignees",
-        label: `经办人：${names}`,
+        label: `经办人：${draft.filters.assignees
+          .map((id) => {
+            if (id === "unassigned") return "未分配";
+            if (id === CURRENT_USER_ID) return `当前用户(${currentUser.name})`;
+            return USERS.find((u) => u.id === id)?.name ?? id;
+          })
+          .join("、")}`,
         onClear: () => setFilterField("assignees", []),
       });
     }
@@ -271,166 +263,13 @@ export function Toolbar() {
     return `已选 ${n}`;
   }
 
-  const overviewMenu = (
-    <DropdownMenu
-      open={overviewOpen}
-      onOpenChange={(open) => {
-        setOverviewOpen(open);
-        if (!open) setViewQuery("");
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 shrink-0 gap-1 px-2.5 text-xs shadow-sm"
-        >
-          <LayoutList className="size-3.5" />
-          总览
-          <ChevronDown className="size-3.5 opacity-60" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-0">
-        <div className="border-b border-border p-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={viewQuery}
-              onChange={(e) => setViewQuery(e.target.value)}
-              placeholder="搜索视图名称 / 描述…"
-              className="h-8 pl-7 text-xs"
-              onKeyDown={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1">
-          {filteredViewList.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              无匹配视图
-            </div>
-          ) : (
-            filteredViewList.map((v) => (
-              <div
-                key={v.id}
-                className={cn(
-                  "group flex items-center gap-0.5 px-1",
-                  v.id === activeViewId && "bg-accent/50",
-                )}
-              >
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  onClick={() => {
-                    selectView(v.id);
-                    setOverviewOpen(false);
-                  }}
-                >
-                  <Star
-                    className={cn(
-                      "size-3.5 shrink-0",
-                      v.starred
-                        ? "fill-current text-amber-500"
-                        : "text-muted-foreground/35",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{v.name}</span>
-                    {v.description ? (
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {v.description}
-                      </span>
-                    ) : null}
-                  </span>
-                  {v.isDefault ? (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      默认
-                    </span>
-                  ) : null}
-                  {v.id === activeViewId ? (
-                    <Check className="size-3.5 shrink-0 text-primary" />
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100"
-                  title={v.starred ? "取消星标" : "星标"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleStar(v.id);
-                  }}
-                >
-                  <Star
-                    className={cn(
-                      "size-3.5",
-                      v.starred && "fill-current text-amber-500",
-                    )}
-                  />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="space-y-0.5 border-t border-border p-1">
-          <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
-            视图条超出时
-          </DropdownMenuLabel>
-          <DropdownMenuItem
-            onClick={() => setOverflow("scroll")}
-            className={cn(overflowMode === "scroll" && "bg-accent")}
-          >
-            <LayoutList /> 横向滚动
-            {overflowMode === "scroll" ? <Check className="ml-auto size-3.5" /> : null}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => setOverflow("wrap")}
-            className={cn(overflowMode === "wrap" && "bg-accent")}
-          >
-            <WrapText /> 自动换行
-            {overflowMode === "wrap" ? <Check className="ml-auto size-3.5" /> : null}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setCreateOpen(true)}>
-            <Plus /> 另存为新视图…
-          </DropdownMenuItem>
-          {dirty ? (
-            <DropdownMenuItem onClick={() => saveDraftToView()}>
-              <Save /> 更新当前视图
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem onClick={() => duplicateView(activeViewId)}>
-            <Copy /> 复制当前视图
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setRenameId(activeViewId);
-              setRenameValue(draft.name);
-            }}
-          >
-            <Pencil /> 重命名当前
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDefaultView(activeViewId)}>
-            <Check /> 设为默认
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => deleteView(activeViewId)}
-          >
-            <Trash2 /> 删除当前
-          </DropdownMenuItem>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  const toolBtn =
+    "h-7 gap-1 px-2.5 text-xs border border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground";
 
   return (
     <div className="border-b border-border bg-card">
-      {/* ── Layer 1: full-width views + fixed 总览 ── */}
+      {/* ── Layer 1: views (no label) + fixed 总览 ── */}
       <div className="flex items-start gap-1.5 border-b border-border/70 px-2.5 py-1.5 sm:px-3">
-        <span className="mt-1.5 shrink-0 text-xs font-medium text-muted-foreground">
-          视图
-        </span>
-
         <div
           className={cn(
             "min-w-0 flex-1 gap-1.5",
@@ -443,24 +282,82 @@ export function Toolbar() {
         >
           {orderedViews.map((v) => {
             const active = v.id === activeViewId;
+            const system = v.scope === "system";
             return (
               <button
                 key={v.id}
                 type="button"
                 role="tab"
                 aria-selected={active}
+                draggable
+                title={
+                  system
+                    ? "系统视图 · 只读 · 可拖拽排序 · 可另存为私有"
+                    : "私有视图 · 可编辑 · 可拖拽排序"
+                }
+                onDragStart={(e) => {
+                  setDragId(v.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", v.id);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverId(v.id);
+                }}
+                onDragLeave={() =>
+                  setDragOverId((cur) => (cur === v.id ? null : cur))
+                }
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = e.dataTransfer.getData("text/plain") || dragId;
+                  if (from) reorderViews(from, v.id);
+                  setDragId(null);
+                  setDragOverId(null);
+                }}
+                onDragEnd={() => {
+                  setDragId(null);
+                  setDragOverId(null);
+                }}
                 onClick={() => selectView(v.id)}
                 className={cn(
-                  "inline-flex h-7 max-w-[160px] shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                  "inline-flex h-7 max-w-[180px] shrink-0 cursor-grab items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors active:cursor-grabbing",
                   active
                     ? "border-primary/30 bg-accent text-accent-foreground"
                     : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  dragOverId === v.id && dragId !== v.id && "ring-2 ring-primary/30",
+                  dragId === v.id && "opacity-50",
                 )}
               >
                 {v.starred ? (
                   <Star className="size-3 shrink-0 fill-current text-amber-500" />
                 ) : null}
+                {system ? (
+                  <Lock className="size-3 shrink-0 text-muted-foreground/70" />
+                ) : null}
                 <span className="truncate">{v.name}</span>
+                {system ? (
+                  <span
+                    className={cn(
+                      "shrink-0 rounded px-1 py-px text-[10px] font-normal",
+                      active
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    系统
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "shrink-0 rounded px-1 py-px text-[10px] font-normal",
+                      active
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    私有
+                  </span>
+                )}
                 {active && dirty ? (
                   <span className="size-1.5 shrink-0 rounded-full bg-warning" />
                 ) : null}
@@ -471,7 +368,7 @@ export function Toolbar() {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 shrink-0 gap-1 px-2.5 text-xs"
+            className={cn(toolBtn, "shrink-0")}
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="size-3.5" />
@@ -479,24 +376,185 @@ export function Toolbar() {
           </Button>
         </div>
 
-        {/* Fixed end actions — always visible */}
-        <div className="flex shrink-0 items-center gap-1.5 pt-0">
-          {dirty ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          {dirty && !systemActive ? (
             <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => saveDraftToView()}>
               <Save className="size-3.5" />
               更新
             </Button>
           ) : null}
+          {dirty && systemActive ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setCreateOpen(true)}
+              title="系统视图不可修改，请另存为私有"
+            >
+              <Plus className="size-3.5" />
+              另存为私有
+            </Button>
+          ) : null}
           <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
             {filteredCount}/{totalCount}
           </span>
-          {overviewMenu}
+
+          <DropdownMenu
+            open={overviewOpen}
+            onOpenChange={(open) => {
+              setOverviewOpen(open);
+              if (!open) setViewQuery("");
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className={cn(toolBtn, "shrink-0")}>
+                <LayoutList className="size-3.5" />
+                总览
+                <ChevronDown className="size-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 p-0">
+              <div className="border-b border-border p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={viewQuery}
+                    onChange={(e) => setViewQuery(e.target.value)}
+                    placeholder="搜索视图名称 / 描述…"
+                    className="h-8 pl-7 text-xs"
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                </div>
+              </div>
+              <div className="max-h-64 overflow-y-auto py-1">
+                {filteredViewList.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    无匹配视图
+                  </div>
+                ) : (
+                  filteredViewList.map((v) => (
+                    <div
+                      key={v.id}
+                      className={cn(
+                        "group flex items-center gap-0.5 px-1",
+                        v.id === activeViewId && "bg-accent/50",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                        onClick={() => {
+                          selectView(v.id);
+                          setOverviewOpen(false);
+                        }}
+                      >
+                        {v.scope === "system" ? (
+                          <Lock className="size-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <UserRound className="size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1">
+                            <span className="truncate font-medium">{v.name}</span>
+                            {v.starred ? (
+                              <Star className="size-3 fill-current text-amber-500" />
+                            ) : null}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {v.scope === "system" ? "系统" : "私有"}
+                            {v.description ? ` · ${v.description}` : ""}
+                          </span>
+                        </span>
+                        {v.id === activeViewId ? (
+                          <Check className="size-3.5 shrink-0 text-primary" />
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleStar(v.id);
+                        }}
+                      >
+                        <Star
+                          className={cn(
+                            "size-3.5",
+                            v.starred && "fill-current text-amber-500",
+                          )}
+                        />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="space-y-0.5 border-t border-border p-1">
+                <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
+                  视图条超出时 · 收藏仅作标记，顺序以拖拽为准
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => setOverflow("scroll")}
+                  className={cn(overflowMode === "scroll" && "bg-accent")}
+                >
+                  <LayoutList /> 横向滚动
+                  {overflowMode === "scroll" ? (
+                    <Check className="ml-auto size-3.5" />
+                  ) : null}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setOverflow("wrap")}
+                  className={cn(overflowMode === "wrap" && "bg-accent")}
+                >
+                  <WrapText /> 自动换行
+                  {overflowMode === "wrap" ? (
+                    <Check className="ml-auto size-3.5" />
+                  ) : null}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                  <Plus /> 另存为私有视图…
+                </DropdownMenuItem>
+                {dirty && !systemActive ? (
+                  <DropdownMenuItem onClick={() => saveDraftToView()}>
+                    <Save /> 更新当前视图
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onClick={() => duplicateView(activeViewId)}>
+                  <Copy /> 复制为私有
+                </DropdownMenuItem>
+                {!systemActive ? (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setRenameId(activeViewId);
+                      setRenameValue(draft.name);
+                    }}
+                  >
+                    <Pencil /> 重命名
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onClick={() => setDefaultView(activeViewId)}>
+                  <Check /> 设为默认
+                </DropdownMenuItem>
+                {!systemActive ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => deleteView(activeViewId)}
+                    >
+                      <Trash2 /> 删除
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* ── Layer 2: compact tools ── */}
+      {/* ── Layer 2: search | 筛选  ……  分组 排序 列 布局 ── */}
       <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 sm:px-3">
-        <div className="relative min-w-[140px] flex-1 sm:max-w-[220px]">
+        <div className="relative min-w-[140px] flex-1 sm:max-w-[240px]">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={draft.filters.search}
@@ -507,9 +565,13 @@ export function Toolbar() {
         </div>
 
         <Button
-          variant={filterOpen || activeFilters > 0 ? "secondary" : "outline"}
+          variant="outline"
           size="sm"
-          className="h-7 gap-1 px-2.5 text-xs"
+          className={cn(
+            toolBtn,
+            (filterOpen || activeFilters > 0) &&
+              "border-primary/30 bg-accent/50 text-accent-foreground",
+          )}
           onClick={() => setFilterOpen((o) => !o)}
         >
           <Filter className="size-3.5" />
@@ -526,83 +588,86 @@ export function Toolbar() {
           )}
         </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
-              <Layers className="size-3.5" />
-              <span className="hidden sm:inline">
-                {groupOptions.find((g) => g.id === draft.groupBy)?.label}
-              </span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {groupOptions.map((g) => (
-              <DropdownMenuItem
-                key={g.id}
-                onClick={() => setGroupBy(g.id)}
-                className={cn(draft.groupBy === g.id && "bg-accent")}
-              >
-                {g.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
-              <ArrowUpDown className="size-3.5" />
-              <span className="hidden sm:inline">
-                {sortOptions.find((s) => s.id === draft.sortBy)?.label}
-              </span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {sortOptions.map((s) => (
-              <DropdownMenuItem
-                key={s.id}
-                onClick={() => setSort(s.id)}
-                className={cn(draft.sortBy === s.id && "bg-accent")}
-              >
-                {s.label}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setSort(draft.sortBy, "asc")}>
-              升序 {draft.sortDir === "asc" ? "✓" : ""}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setSort(draft.sortBy, "desc")}>
-              降序 {draft.sortDir === "desc" ? "✓" : ""}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {draft.type === "list" ? (
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs">
-                <Columns3 className="size-3.5" />
-                列
+              <Button variant="outline" size="sm" className={toolBtn}>
+                <Layers className="size-3.5" />
+                <span className="hidden sm:inline">
+                  {groupOptions.find((g) => g.id === draft.groupBy)?.label}
+                </span>
+                <span className="sm:hidden">分组</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44">
-              {Object.entries(COLUMN_LABELS).map(([key, label]) => (
-                <DropdownMenuCheckboxItem
-                  key={key}
-                  checked={draft.visibleColumns.includes(key)}
-                  onCheckedChange={() => toggleColumn(key)}
-                  onSelect={(e) => e.preventDefault()}
-                  disabled={key === "title"}
+            <DropdownMenuContent align="end">
+              {groupOptions.map((g) => (
+                <DropdownMenuItem
+                  key={g.id}
+                  onClick={() => setGroupBy(g.id)}
+                  className={cn(draft.groupBy === g.id && "bg-accent")}
                 >
-                  {label}
-                </DropdownMenuCheckboxItem>
+                  {g.label}
+                </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        ) : null}
 
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="flex h-7 items-center rounded-md border border-border bg-secondary p-0.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className={toolBtn}>
+                <ArrowUpDown className="size-3.5" />
+                <span className="hidden sm:inline">
+                  {sortOptions.find((s) => s.id === draft.sortBy)?.label}
+                </span>
+                <span className="sm:hidden">排序</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {sortOptions.map((s) => (
+                <DropdownMenuItem
+                  key={s.id}
+                  onClick={() => setSort(s.id)}
+                  className={cn(draft.sortBy === s.id && "bg-accent")}
+                >
+                  {s.label}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setSort(draft.sortBy, "asc")}>
+                升序 {draft.sortDir === "asc" ? "✓" : ""}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSort(draft.sortBy, "desc")}>
+                降序 {draft.sortDir === "desc" ? "✓" : ""}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {draft.type === "list" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className={toolBtn}>
+                  <Columns3 className="size-3.5" />
+                  列
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {Object.entries(COLUMN_LABELS).map(([key, label]) => (
+                  <DropdownMenuCheckboxItem
+                    key={key}
+                    checked={draft.visibleColumns.includes(key)}
+                    onCheckedChange={() => toggleColumn(key)}
+                    onSelect={(e) => e.preventDefault()}
+                    disabled={key === "title"}
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+
+          {/* Layout as segmented outline buttons — same family as other tools */}
+          <div className="inline-flex h-7 items-center rounded-md border border-border bg-card p-px">
             {layoutModes.map((m) => (
               <button
                 key={m.id}
@@ -610,13 +675,14 @@ export function Toolbar() {
                 title={m.label}
                 onClick={() => setViewType(m.id)}
                 className={cn(
-                  "inline-flex size-6 items-center justify-center rounded-[4px]",
+                  "inline-flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs font-medium transition-colors",
                   draft.type === m.id
-                    ? "bg-card text-foreground shadow-sm"
+                    ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {m.icon}
+                <span className="hidden lg:inline">{m.label}</span>
               </button>
             ))}
           </div>
@@ -626,6 +692,13 @@ export function Toolbar() {
       {/* ── Expanded filter panel ── */}
       {filterOpen ? (
         <div className="space-y-2.5 border-t border-border/70 bg-secondary/25 px-2.5 py-2.5 sm:px-3">
+          {systemActive ? (
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <Lock className="size-3.5 shrink-0" />
+              当前为系统视图（只读）。可改条件预览，但只能「另存为私有」，不能写回系统视图。
+            </div>
+          ) : null}
+
           <FilterRow label="状态">
             {STATUSES.map((s) => (
               <ToggleChip
@@ -715,10 +788,6 @@ export function Toolbar() {
                           {currentUser.name} · {currentUser.py.toUpperCase()}
                         </span>
                       </span>
-                      {draft.filters.assignees.length === 1 &&
-                      draft.filters.assignees[0] === CURRENT_USER_ID ? (
-                        <Check className="size-3.5 text-primary" />
-                      ) : null}
                     </button>
                     <DropdownMenuSeparator />
                     <DropdownMenuCheckboxItem
@@ -752,11 +821,6 @@ export function Toolbar() {
                         </span>
                       </DropdownMenuCheckboxItem>
                     ))}
-                    {assigneesSorted.length === 0 ? (
-                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                        无匹配用户
-                      </div>
-                    ) : null}
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -806,11 +870,6 @@ export function Toolbar() {
                         {l}
                       </DropdownMenuCheckboxItem>
                     ))}
-                    {labelsFiltered.length === 0 ? (
-                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                        无匹配标签
-                      </div>
-                    ) : null}
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -845,7 +904,7 @@ export function Toolbar() {
                 重置条件
               </Button>
             ) : null}
-            {dirty ? (
+            {dirty && !systemActive ? (
               <Button size="sm" className="h-7 text-xs" onClick={() => saveDraftToView()}>
                 更新视图
               </Button>
@@ -856,27 +915,26 @@ export function Toolbar() {
               className="h-7 text-xs"
               onClick={() => setCreateOpen(true)}
             >
-              另存为视图
+              另存为私有
             </Button>
           </div>
         </div>
       ) : null}
 
-      {/* ── Layer 3: merged active conditions ── */}
+      {/* ── Layer 3: merged active chips, clear icon at end ── */}
       {activeGroups.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-2.5 py-1.5 sm:px-3">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            已选
-          </span>
           {activeGroups.map((g) => (
             <ActiveChip key={g.key} label={g.label} onRemove={g.onClear} />
           ))}
           <button
             type="button"
             onClick={() => clearFilters()}
-            className="ml-0.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+            title="全部清除"
+            aria-label="全部清除"
           >
-            全部清除
+            <Eraser className="size-3.5" />
           </button>
         </div>
       ) : null}
@@ -884,15 +942,15 @@ export function Toolbar() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>另存为筛选视图</DialogTitle>
+            <DialogTitle>另存为私有视图</DialogTitle>
             <DialogDescription>
-              保存当前筛选条件，之后可从视图条或「总览」中快速切换。
+              保存为你的私有视图（可编辑）。系统视图本身不会被修改。
             </DialogDescription>
           </DialogHeader>
           <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="例如：我的待办、本周缺陷"
+            placeholder="例如：我的本周缺陷"
             autoFocus
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
           />
@@ -900,7 +958,7 @@ export function Toolbar() {
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               取消
             </Button>
-            <Button onClick={handleCreate}>保存</Button>
+            <Button onClick={handleCreate}>保存为私有</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
