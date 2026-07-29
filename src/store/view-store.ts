@@ -129,15 +129,21 @@ interface ViewStore {
   moveIssue: (issueId: string, status: StatusId) => void;
   selectIssue: (id: string | null) => void;
   updateIssue: (id: string, patch: Partial<Issue>) => void;
-  createView: (input: { name: string; description?: string; type: ViewType }) => string;
-  /** Save draft onto current view — blocked for system views */
+  createView: (input: {
+    name: string;
+    description?: string;
+    type: ViewType;
+    color?: string | null;
+  }) => string;
   saveDraftToView: () => void;
+  /** Discard draft edits and reload from saved view */
+  discardDraft: () => void;
   renameView: (id: string, name: string) => void;
+  setViewColor: (id: string, color: string | null) => void;
   deleteView: (id: string) => void;
   duplicateView: (id: string) => string;
   toggleStar: (id: string) => void;
   setDefaultView: (id: string) => void;
-  /** Drag-reorder. Star is badge-only; order is fully manual. */
   reorderViews: (fromId: string, toId: string) => void;
   setSidebarOpen: (open: boolean) => void;
   resetDemo: () => void;
@@ -273,7 +279,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       ),
     })),
 
-  createView: ({ name, description, type }) => {
+  createView: ({ name, description, type, color }) => {
     const id = `v-${Date.now()}`;
     const base = get().draft;
     const view: SavedView = {
@@ -282,6 +288,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       description,
       type,
       scope: "personal",
+      color: color ?? base.color ?? "#0c66e4",
       starred: false,
       groupBy: base.groupBy,
       sortBy: base.sortBy,
@@ -314,7 +321,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
     if (!existing) return;
     if (existing.scope === "system") {
       toast.message("系统视图不可修改", {
-        description: "请使用「另存」保存为你的私有视图",
+        description: "请另存为你的私有视图",
       });
       return;
     }
@@ -324,6 +331,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       name: existing.name,
       description: existing.description,
       scope: "personal",
+      color: existing.color,
       starred: existing.starred,
       isDefault: existing.isDefault,
       updatedAt: nowIso(),
@@ -333,15 +341,24 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       draft: updated,
       dirty: false,
     });
+    toast.success("已更新视图");
+  },
+
+  discardDraft: () => {
+    const { activeViewId, views } = get();
+    const existing = views.find((v) => v.id === activeViewId);
+    if (!existing) return;
+    set({
+      draft: deepCloneView(existing),
+      dirty: false,
+    });
   },
 
   renameView: (id, name) => {
     const target = get().views.find((v) => v.id === id);
     if (!target) return;
     if (target.scope === "system") {
-      toast.message("系统视图不可重命名", {
-        description: "可另存为私有视图后再命名",
-      });
+      toast.message("系统视图不可重命名");
       return;
     }
     set((s) => ({
@@ -350,6 +367,24 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       ),
       draft:
         s.activeViewId === id ? { ...s.draft, name, updatedAt: nowIso() } : s.draft,
+    }));
+  },
+
+  setViewColor: (id, color) => {
+    const target = get().views.find((v) => v.id === id);
+    if (!target) return;
+    if (target.scope === "system") {
+      toast.message("系统视图不可自定义颜色");
+      return;
+    }
+    set((s) => ({
+      views: s.views.map((v) =>
+        v.id === id ? { ...v, color, updatedAt: nowIso() } : v,
+      ),
+      draft:
+        s.activeViewId === id
+          ? { ...s.draft, color, updatedAt: nowIso() }
+          : s.draft,
     }));
   },
 
@@ -384,6 +419,7 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
       id: newId,
       name: `${src.name} (副本)`,
       scope: "personal",
+      color: src.color ?? "#0c66e4",
       starred: false,
       isDefault: false,
       createdAt: nowIso(),

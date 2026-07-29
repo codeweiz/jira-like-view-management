@@ -56,6 +56,11 @@ export interface SavedView {
   type: ViewType;
   /** system views are read-only; personal are editable */
   scope: ViewScope;
+  /**
+   * Optional accent for the view chip (personal views).
+   * System views ignore this and always render neutral + lock.
+   */
+  color?: string | null;
   starred: boolean;
   isDefault?: boolean;
   groupBy: GroupBy;
@@ -66,6 +71,17 @@ export interface SavedView {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Preset accents for personal view chips */
+export const VIEW_COLOR_PRESETS = [
+  { id: "blue", color: "#0c66e4", label: "蓝" },
+  { id: "teal", color: "#1d7a8c", label: "青" },
+  { id: "green", color: "#216e4e", label: "绿" },
+  { id: "amber", color: "#974f0c", label: "琥珀" },
+  { id: "red", color: "#ae2e24", label: "红" },
+  { id: "violet", color: "#5e4db2", label: "紫" },
+  { id: "slate", color: "#44546f", label: "灰" },
+] as const;
 
 export const STATUSES: Status[] = [
   { id: "backlog", name: "待办池", category: "todo", color: "#626f86" },
@@ -453,6 +469,7 @@ export const SEED_VIEWS: SavedView[] = [
     description: "全部工作项 · 看板布局",
     type: "board",
     scope: "system",
+    color: null,
     starred: true,
     isDefault: true,
     groupBy: "none",
@@ -469,6 +486,7 @@ export const SEED_VIEWS: SavedView[] = [
     description: "指派给我且未完成的工作项",
     type: "list",
     scope: "system",
+    color: null,
     starred: true,
     groupBy: "status",
     sortBy: "priority",
@@ -488,6 +506,7 @@ export const SEED_VIEWS: SavedView[] = [
     description: "高优先级进行中事项",
     type: "board",
     scope: "system",
+    color: null,
     starred: true,
     groupBy: "none",
     sortBy: "priority",
@@ -507,6 +526,7 @@ export const SEED_VIEWS: SavedView[] = [
     description: "所有缺陷 · 按状态分组",
     type: "list",
     scope: "system",
+    color: null,
     starred: false,
     groupBy: "status",
     sortBy: "priority",
@@ -525,6 +545,7 @@ export const SEED_VIEWS: SavedView[] = [
     description: "有截止日期的工作项",
     type: "timeline",
     scope: "system",
+    color: null,
     starred: false,
     groupBy: "none",
     sortBy: "updated",
@@ -540,6 +561,7 @@ export const SEED_VIEWS: SavedView[] = [
     description: "我的后端相关列表",
     type: "list",
     scope: "personal",
+    color: "#1d7a8c",
     starred: false,
     groupBy: "assignee",
     sortBy: "updated",

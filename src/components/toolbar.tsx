@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
@@ -12,6 +12,7 @@ import {
   List,
   Pencil,
   Plus,
+  RotateCcw,
   Save,
   Search,
   ArrowUpDown,
@@ -51,6 +52,7 @@ import {
   STATUSES,
   TYPE_META,
   USERS,
+  VIEW_COLOR_PRESETS,
   type GroupBy,
   type Priority,
   type SortBy,
@@ -87,6 +89,25 @@ const sortOptions: { id: SortBy; label: string }[] = [
 type ViewOverflowMode = "scroll" | "wrap";
 const VIEW_OVERFLOW_KEY = "vb-view-overflow";
 
+function chipStyle(opts: {
+  active: boolean;
+  system: boolean;
+  color?: string | null;
+}): CSSProperties | undefined {
+  if (opts.system || !opts.color) return undefined;
+  if (opts.active) {
+    return {
+      borderColor: `${opts.color}55`,
+      backgroundColor: `${opts.color}14`,
+      color: opts.color,
+      boxShadow: `inset 3px 0 0 ${opts.color}`,
+    };
+  }
+  return {
+    boxShadow: `inset 3px 0 0 ${opts.color}`,
+  };
+}
+
 export function Toolbar() {
   const views = useViewStore((s) => s.views);
   const activeViewId = useViewStore((s) => s.activeViewId);
@@ -104,7 +125,9 @@ export function Toolbar() {
   const selectView = useViewStore((s) => s.selectView);
   const createView = useViewStore((s) => s.createView);
   const saveDraftToView = useViewStore((s) => s.saveDraftToView);
+  const discardDraft = useViewStore((s) => s.discardDraft);
   const renameView = useViewStore((s) => s.renameView);
+  const setViewColor = useViewStore((s) => s.setViewColor);
   const deleteView = useViewStore((s) => s.deleteView);
   const duplicateView = useViewStore((s) => s.duplicateView);
   const toggleStar = useViewStore((s) => s.toggleStar);
@@ -120,6 +143,7 @@ export function Toolbar() {
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState<string>("#0c66e4");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [viewQuery, setViewQuery] = useState("");
@@ -147,7 +171,6 @@ export function Toolbar() {
     }
   }
 
-  /** Display order = array order (manual drag). Star is badge only. */
   const orderedViews = views;
 
   const filteredViewList = useMemo(() => {
@@ -239,9 +262,21 @@ export function Toolbar() {
   }, [draft.filters, currentUser.name, setFilterField, setSearch]);
 
   function handleCreate() {
-    createView({ name: newName.trim() || "未命名视图", type: draft.type });
+    createView({
+      name: newName.trim() || "未命名视图",
+      type: draft.type,
+      color: newColor,
+    });
     setCreateOpen(false);
     setNewName("");
+    setNewColor("#0c66e4");
+  }
+
+  function openCreate() {
+    setNewColor(
+      (!systemActive && activeView?.color) || VIEW_COLOR_PRESETS[0]!.color,
+    );
+    setCreateOpen(true);
   }
 
   function assigneeSummary() {
@@ -268,7 +303,7 @@ export function Toolbar() {
 
   return (
     <div className="border-b border-border bg-card">
-      {/* ── Layer 1: views (no label) + fixed 总览 ── */}
+      {/* ── Views row: chips only + 总览 ── */}
       <div className="flex items-start gap-1.5 border-b border-border/70 px-2.5 py-1.5 sm:px-3">
         <div
           className={cn(
@@ -292,8 +327,8 @@ export function Toolbar() {
                 draggable
                 title={
                   system
-                    ? "系统视图 · 只读 · 可拖拽排序 · 可另存为私有"
-                    : "私有视图 · 可编辑 · 可拖拽排序"
+                    ? "系统视图 · 只读 · 可拖拽 · 可另存为私有"
+                    : "私有视图 · 可编辑 · 可拖拽 · 可设颜色"
                 }
                 onDragStart={(e) => {
                   setDragId(v.id);
@@ -319,47 +354,36 @@ export function Toolbar() {
                   setDragOverId(null);
                 }}
                 onClick={() => selectView(v.id)}
+                style={chipStyle({ active, system, color: v.color })}
                 className={cn(
-                  "inline-flex h-7 max-w-[180px] shrink-0 cursor-grab items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors active:cursor-grabbing",
+                  "inline-flex h-7 max-w-[160px] shrink-0 cursor-grab items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors active:cursor-grabbing",
                   active
-                    ? "border-primary/30 bg-accent text-accent-foreground"
+                    ? system
+                      ? "border-primary/30 bg-accent text-accent-foreground"
+                      : "border-border"
                     : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
                   dragOverId === v.id && dragId !== v.id && "ring-2 ring-primary/30",
                   dragId === v.id && "opacity-50",
                 )}
               >
+                {system ? (
+                  <Lock className="size-3 shrink-0 opacity-60" />
+                ) : v.color ? (
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ background: v.color }}
+                    aria-hidden
+                  />
+                ) : null}
                 {v.starred ? (
                   <Star className="size-3 shrink-0 fill-current text-amber-500" />
                 ) : null}
-                {system ? (
-                  <Lock className="size-3 shrink-0 text-muted-foreground/70" />
-                ) : null}
                 <span className="truncate">{v.name}</span>
-                {system ? (
-                  <span
-                    className={cn(
-                      "shrink-0 rounded px-1 py-px text-[10px] font-normal",
-                      active
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    系统
-                  </span>
-                ) : (
-                  <span
-                    className={cn(
-                      "shrink-0 rounded px-1 py-px text-[10px] font-normal",
-                      active
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    私有
-                  </span>
-                )}
                 {active && dirty ? (
-                  <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+                  <span
+                    className="size-1.5 shrink-0 rounded-full bg-warning"
+                    title="有未保存更改"
+                  />
                 ) : null}
               </button>
             );
@@ -369,7 +393,7 @@ export function Toolbar() {
             variant="outline"
             size="sm"
             className={cn(toolBtn, "shrink-0")}
-            onClick={() => setCreateOpen(true)}
+            onClick={openCreate}
           >
             <Plus className="size-3.5" />
             另存
@@ -377,24 +401,6 @@ export function Toolbar() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          {dirty && !systemActive ? (
-            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => saveDraftToView()}>
-              <Save className="size-3.5" />
-              更新
-            </Button>
-          ) : null}
-          {dirty && systemActive ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => setCreateOpen(true)}
-              title="系统视图不可修改，请另存为私有"
-            >
-              <Plus className="size-3.5" />
-              另存为私有
-            </Button>
-          ) : null}
           <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
             {filteredCount}/{totalCount}
           </span>
@@ -451,7 +457,10 @@ export function Toolbar() {
                         {v.scope === "system" ? (
                           <Lock className="size-3.5 shrink-0 text-muted-foreground" />
                         ) : (
-                          <UserRound className="size-3.5 shrink-0 text-muted-foreground" />
+                          <span
+                            className="size-2.5 shrink-0 rounded-full border border-border"
+                            style={{ background: v.color || "#94a3b8" }}
+                          />
                         )}
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-1">
@@ -460,10 +469,11 @@ export function Toolbar() {
                               <Star className="size-3 fill-current text-amber-500" />
                             ) : null}
                           </span>
-                          <span className="block truncate text-[11px] text-muted-foreground">
-                            {v.scope === "system" ? "系统" : "私有"}
-                            {v.description ? ` · ${v.description}` : ""}
-                          </span>
+                          {v.description ? (
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {v.description}
+                            </span>
+                          ) : null}
                         </span>
                         {v.id === activeViewId ? (
                           <Check className="size-3.5 shrink-0 text-primary" />
@@ -490,7 +500,7 @@ export function Toolbar() {
               </div>
               <div className="space-y-0.5 border-t border-border p-1">
                 <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
-                  视图条超出时 · 收藏仅作标记，顺序以拖拽为准
+                  超出时 · 收藏仅标记 · 顺序以拖拽为准
                 </DropdownMenuLabel>
                 <DropdownMenuItem
                   onClick={() => setOverflow("scroll")}
@@ -510,8 +520,46 @@ export function Toolbar() {
                     <Check className="ml-auto size-3.5" />
                   ) : null}
                 </DropdownMenuItem>
+
+                {!systemActive ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
+                      当前视图颜色
+                    </DropdownMenuLabel>
+                    <div className="flex flex-wrap gap-1.5 px-2 py-1.5">
+                      {VIEW_COLOR_PRESETS.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          title={p.label}
+                          onClick={() => setViewColor(activeViewId, p.color)}
+                          className={cn(
+                            "size-5 rounded-full border-2 transition-transform hover:scale-110",
+                            activeView?.color === p.color
+                              ? "border-foreground"
+                              : "border-transparent",
+                          )}
+                          style={{ background: p.color }}
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        title="无颜色"
+                        onClick={() => setViewColor(activeViewId, null)}
+                        className={cn(
+                          "flex size-5 items-center justify-center rounded-full border border-border bg-card text-[10px] text-muted-foreground",
+                          !activeView?.color && "ring-2 ring-foreground/30",
+                        )}
+                      >
+                        —
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                <DropdownMenuItem onClick={openCreate}>
                   <Plus /> 另存为私有视图…
                 </DropdownMenuItem>
                 {dirty && !systemActive ? (
@@ -552,7 +600,7 @@ export function Toolbar() {
         </div>
       </div>
 
-      {/* ── Layer 2: search | 筛选  ……  分组 排序 列 布局 ── */}
+      {/* ── Tools row ── */}
       <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 sm:px-3">
         <div className="relative min-w-[140px] flex-1 sm:max-w-[240px]">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -666,7 +714,6 @@ export function Toolbar() {
             </DropdownMenu>
           ) : null}
 
-          {/* Layout as segmented outline buttons — same family as other tools */}
           <div className="inline-flex h-7 items-center rounded-md border border-border bg-card p-px">
             {layoutModes.map((m) => (
               <button
@@ -689,13 +736,62 @@ export function Toolbar() {
         </div>
       </div>
 
+      {/* ── Dirty strip: save lives here, not on the view row ── */}
+      {dirty ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-amber-500/20 bg-amber-500/[0.06] px-2.5 py-1.5 sm:px-3">
+          <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {systemActive
+              ? "已修改筛选条件 · 系统视图不可写回，请另存为私有"
+              : "当前视图有未保存的更改"}
+          </span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => discardDraft()}
+            >
+              <RotateCcw className="size-3.5" />
+              放弃
+            </Button>
+            {systemActive ? (
+              <Button size="sm" className="h-7 px-2.5 text-xs" onClick={openCreate}>
+                <Plus className="size-3.5" />
+                另存为私有
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={openCreate}
+                >
+                  <Plus className="size-3.5" />
+                  另存
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => saveDraftToView()}
+                >
+                  <Save className="size-3.5" />
+                  更新视图
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {/* ── Expanded filter panel ── */}
       {filterOpen ? (
         <div className="space-y-2.5 border-t border-border/70 bg-secondary/25 px-2.5 py-2.5 sm:px-3">
           {systemActive ? (
             <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] text-muted-foreground">
               <Lock className="size-3.5 shrink-0" />
-              当前为系统视图（只读）。可改条件预览，但只能「另存为私有」，不能写回系统视图。
+              系统视图只读。可预览条件变更，需另存为私有后才能保留。
             </div>
           ) : null}
 
@@ -904,24 +1000,11 @@ export function Toolbar() {
                 重置条件
               </Button>
             ) : null}
-            {dirty && !systemActive ? (
-              <Button size="sm" className="h-7 text-xs" onClick={() => saveDraftToView()}>
-                更新视图
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setCreateOpen(true)}
-            >
-              另存为私有
-            </Button>
           </div>
         </div>
       ) : null}
 
-      {/* ── Layer 3: merged active chips, clear icon at end ── */}
+      {/* ── Active conditions ── */}
       {activeGroups.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-2.5 py-1.5 sm:px-3">
           {activeGroups.map((g) => (
@@ -944,16 +1027,36 @@ export function Toolbar() {
           <DialogHeader>
             <DialogTitle>另存为私有视图</DialogTitle>
             <DialogDescription>
-              保存为你的私有视图（可编辑）。系统视图本身不会被修改。
+              保存为你的私有视图（可编辑、可设颜色）。系统视图本身不会被修改。
             </DialogDescription>
           </DialogHeader>
-          <Input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="例如：我的本周缺陷"
-            autoFocus
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          />
+          <div className="space-y-3">
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="例如：我的本周缺陷"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            />
+            <div>
+              <div className="mb-1.5 text-xs text-muted-foreground">颜色标记</div>
+              <div className="flex flex-wrap gap-1.5">
+                {VIEW_COLOR_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    title={p.label}
+                    onClick={() => setNewColor(p.color)}
+                    className={cn(
+                      "size-6 rounded-full border-2 transition-transform hover:scale-110",
+                      newColor === p.color ? "border-foreground" : "border-transparent",
+                    )}
+                    style={{ background: p.color }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               取消
