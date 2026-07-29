@@ -6,7 +6,7 @@
 
 **GitHub Pages：** https://codeweiz.github.io/jira-like-view-management/
 
-（`main` 推送后由 Actions 自动部署）
+推送到 `main` 后，Actions 会重新构建并发布到 `gh-pages`。
 
 ## 核心概念
 
@@ -21,9 +21,9 @@
 
 ```bash
 npm install
-npm run dev          # 0.0.0.0:8080
+npm run dev          # 开发预览 0.0.0.0:8080
 npm run build        # Vercel 生产构建
-npm run build:pages  # GitHub Pages 静态构建
+npm run build:pages  # GitHub Pages 静态 SPA → .output/public
 npm run typecheck
 ```
 
@@ -33,7 +33,7 @@ React 19 · TypeScript · Vite · TanStack Start · Tailwind v4 · Zustand
 
 ## 产品取舍（摘要）
 
-- **视图**用横向 chips 全览 + 总览面板
+- **视图**横向 chips + 总览面板；可拖拽排序
 - **筛选**可展开；有限项 chips，用户/标签可搜索多选
 - **系统视图**只读（锁图标）；私有视图可更新、可设颜色
-- **布局**与视图/筛选分离
+- **未保存更改**用底部提示条更新/另存，不占视图行

@@ -1,5 +1,8 @@
-# Deploy ViewBoard demo to GitHub Pages (static SPA)
-# https://codeweiz.github.io/jira-like-view-management/
+# Deploy ViewBoard demo to GitHub Pages
+# Live: https://codeweiz.github.io/jira-like-view-management/
+#
+# Publishes a static SPA to the `gh-pages` branch (repo Settings → Pages
+# already points at that branch).
 name: Deploy to GitHub Pages
 
 on:
@@ -8,16 +11,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,21 +33,13 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build static SPA for Pages
+      - name: Build static SPA
         run: npm run build:pages
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: .output/public
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .output/public
+          force_orphan: true
+          enable_jekyll: false
