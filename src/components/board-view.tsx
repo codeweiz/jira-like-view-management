@@ -33,22 +33,20 @@ export function BoardView() {
   }, [issues, statusFilter]);
 
   function onDrop(status: StatusId) {
-    if (dragId) {
-      moveIssue(dragId, status);
-    }
+    if (dragId) moveIssue(dragId, status);
     setDragId(null);
     setOverStatus(null);
   }
 
   return (
-    <div className="scrollbar-thin flex h-full gap-3 overflow-x-auto p-3 sm:p-4">
+    <div className="scrollbar-thin flex h-full gap-2 overflow-x-auto p-2 sm:p-2.5">
       {columns.map(({ status, issues: colIssues }) => (
         <div
           key={status.id}
           className={cn(
-            "flex w-[280px] shrink-0 flex-col rounded-xl bg-muted/60 transition-colors",
+            "flex w-[250px] shrink-0 flex-col rounded-lg bg-muted/50 transition-colors",
             overStatus === status.id && dragId
-              ? "bg-accent/40 ring-2 ring-primary/40"
+              ? "bg-accent/40 ring-2 ring-primary/30"
               : "",
           )}
           onDragOver={(e) => {
@@ -61,19 +59,14 @@ export function BoardView() {
             onDrop(status.id);
           }}
         >
-          <div className="flex items-center gap-2 px-3 py-2.5">
-            <span
-              className="size-2 rounded-full"
-              style={{ background: status.color }}
-            />
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {status.name}
-            </h2>
-            <span className="rounded-full bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm">
+          <div className="flex items-center gap-1.5 px-2 py-1.5">
+            <span className="size-1.5 rounded-full" style={{ background: status.color }} />
+            <h2 className="text-[11px] font-semibold text-muted-foreground">{status.name}</h2>
+            <span className="rounded bg-card px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
               {colIssues.length}
             </span>
           </div>
-          <div className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
+          <div className="scrollbar-thin flex flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-2">
             {colIssues.map((issue) => (
               <IssueCard
                 key={issue.id}
@@ -89,8 +82,8 @@ export function BoardView() {
               />
             ))}
             {colIssues.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
-                拖入工作项
+              <div className="rounded-md border border-dashed border-border px-2 py-6 text-center text-[11px] text-muted-foreground">
+                拖入
               </div>
             ) : null}
           </div>
@@ -126,34 +119,29 @@ function IssueCard({
       onDragEnd={onDragEnd}
       onClick={onClick}
       className={cn(
-        "cursor-grab rounded-lg border border-border bg-card p-3 shadow-sm transition-all active:cursor-grabbing",
-        "hover:border-primary/30 hover:shadow-md",
-        selected && "border-primary ring-2 ring-primary/20",
+        "cursor-grab rounded-md border border-border bg-card p-2 shadow-sm transition-all active:cursor-grabbing",
+        "hover:border-primary/30",
+        selected && "border-primary ring-1 ring-primary/25",
         dragging && "opacity-50",
       )}
     >
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <p className="text-sm font-medium leading-snug text-foreground">{issue.title}</p>
+      <div className="mb-1 flex items-start justify-between gap-1.5">
+        <p className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">
+          {issue.title}
+        </p>
         <PriorityIcon priority={issue.priority} />
       </div>
       {issue.labels.length > 0 ? (
-        <div className="mb-2">
+        <div className="mb-1.5">
           <LabelChips labels={issue.labels} max={2} />
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <TypeIcon type={issue.type} />
           <IssueKey issue={issue} />
         </div>
-        <div className="flex items-center gap-1.5">
-          {issue.storyPoints != null ? (
-            <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {issue.storyPoints}
-            </span>
-          ) : null}
-          <Avatar userId={issue.assigneeId} size="sm" />
-        </div>
+        <Avatar userId={issue.assigneeId} size="sm" />
       </div>
     </article>
   );
