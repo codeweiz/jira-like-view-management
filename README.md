@@ -2,6 +2,12 @@
 
 类 Jira 的「筛选视图」管理 Web Demo，嵌入 soybean-admin 式后台布局。
 
+## 在线 Demo
+
+**GitHub Pages：** https://codeweiz.github.io/jira-like-view-management/
+
+（`main` 推送后由 Actions 自动部署）
+
 ## 核心概念
 
 | 层级 | 作用 |
@@ -15,8 +21,9 @@
 
 ```bash
 npm install
-npm run dev    # 0.0.0.0:8080
-npm run build
+npm run dev          # 0.0.0.0:8080
+npm run build        # Vercel 生产构建
+npm run build:pages  # GitHub Pages 静态构建
 npm run typecheck
 ```
 
@@ -26,6 +33,7 @@ React 19 · TypeScript · Vite · TanStack Start · Tailwind v4 · Zustand
 
 ## 产品取舍（摘要）
 
-- **视图**用横向 chips 全览，不埋进单一下拉
-- **筛选**用可展开表单 + 字段 chips，贴近后台「查询项」习惯
-- **布局**与视图/筛选分离，避免混进导航
+- **视图**用横向 chips 全览 + 总览面板
+- **筛选**可展开；有限项 chips，用户/标签可搜索多选
+- **系统视图**只读（锁图标）；私有视图可更新、可设颜色
+- **布局**与视图/筛选分离
