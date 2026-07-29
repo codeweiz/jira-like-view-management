@@ -1,39 +1,39 @@
-# ViewBoard — Jira-like View Management Demo
+# ViewBoard — 视图管理 Demo
 
-类 Jira 的「筛选视图」管理 Web Demo，嵌入 soybean-admin 式后台布局。
+类 Jira 的**筛选视图管理**演示：在工作项工作区内，将筛选、分组、排序与布局固化为可切换的视图，并区分系统视图与个人私有视图。
 
-## 在线 Demo
+## 在线体验
 
 **GitHub Pages：** https://codeweiz.github.io/jira-like-view-management/
 
-推送到 `main` 后，Actions 会重新构建并发布到 `gh-pages`。
+## 文档
 
-## 核心概念
-
-| 层级 | 作用 |
+| 文档 | 说明 |
 | --- | --- |
-| 侧栏 + 多标签 | 页面导航（工作台 / 工作项 / 项目 / 设置） |
-| 工作项页「视图」chips | 已保存的筛选预设（我的待办、冲刺焦点…） |
-| 可展开筛选表单 | 传统后台查询项：状态 / 经办人 / 优先级… |
-| 布局切换 | 看板 / 列表 / 时间线（与筛选正交） |
+| [**研发文档**](./docs/dev.md) | 目的、架构、用户故事、概要/详细设计、流程与时序、前后端规划、生命周期与闭环判定（技术栈无关） |
+
+建议评审与开发以 `docs/dev.md` 为契约基线。
+
+## 能力一览（Demo）
+
+- **视图条**：系统/私有视图切换、拖拽排序、收藏标记、私有颜色
+- **筛选**：状态 / 优先级 / 类型 chips；经办人与标签可搜索多选
+- **生效条件**：合并展示已选条件，支持单项清除与清空
+- **布局**：看板 · 列表 · 时间线
+- **保存闭环**：脏状态条上更新（私有）/ 另存为私有 / 放弃；系统视图只读
 
 ## 本地运行
 
 ```bash
 npm install
-npm run dev          # 开发预览 0.0.0.0:8080
-npm run build        # Vercel 生产构建
-npm run build:pages  # GitHub Pages 静态 SPA → .output/public
+npm run dev          # 开发预览
+npm run build        # 生产构建
+npm run build:pages  # 静态站点（GitHub Pages）
 npm run typecheck
 ```
 
-## 技术栈
+推送到 `main` 后，CI 会自动更新 GitHub Pages。
 
-React 19 · TypeScript · Vite · TanStack Start · Tailwind v4 · Zustand
+## 仓库
 
-## 产品取舍（摘要）
-
-- **视图**横向 chips + 总览面板；可拖拽排序
-- **筛选**可展开；有限项 chips，用户/标签可搜索多选
-- **系统视图**只读（锁图标）；私有视图可更新、可设颜色
-- **未保存更改**用底部提示条更新/另存，不占视图行
+https://github.com/codeweiz/jira-like-view-management
