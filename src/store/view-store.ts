@@ -114,6 +114,10 @@ interface ViewStore {
     key: K,
     value: ViewFilters[K][number],
   ) => void;
+  setFilterField: <K extends keyof Omit<ViewFilters, "search">>(
+    key: K,
+    values: ViewFilters[K],
+  ) => void;
   clearFilters: () => void;
   setVisibleColumns: (cols: string[]) => void;
   toggleColumn: (col: string) => void;
@@ -205,6 +209,16 @@ export const useViewStore = create<ViewStore>()((set, get) => ({
         dirty: true,
       };
     }),
+
+  setFilterField: (key, values) =>
+    set((s) => ({
+      draft: {
+        ...s.draft,
+        filters: { ...s.draft.filters, [key]: values },
+        updatedAt: nowIso(),
+      },
+      dirty: true,
+    })),
 
   clearFilters: () =>
     set((s) => ({

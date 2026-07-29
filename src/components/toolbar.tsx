@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
@@ -9,7 +9,6 @@ import {
   GanttChart,
   LayoutDashboard,
   List,
-  MoreHorizontal,
   Pencil,
   Plus,
   Save,
@@ -18,6 +17,7 @@ import {
   Layers,
   Star,
   Trash2,
+  UserRound,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import {
 import {
   ALL_LABELS,
   COLUMN_LABELS,
+  CURRENT_USER_ID,
   PRIORITY_META,
   STATUSES,
   TYPE_META,
@@ -56,6 +57,8 @@ import {
 import { countActiveFilters, useViewStore } from "@/store/view-store";
 import { useFilteredIssues } from "@/hooks/use-filtered-issues";
 import { cn } from "@/lib/utils";
+
+const VISIBLE_VIEW_SLOTS = 4;
 
 const layoutModes: { id: ViewType; label: string; icon: ReactNode }[] = [
   { id: "board", label: "看板", icon: <LayoutDashboard className="size-3.5" /> },
@@ -79,17 +82,6 @@ const sortOptions: { id: SortBy; label: string }[] = [
   { id: "title", label: "摘要" },
 ];
 
-/**
- * Hybrid toolbar for lowest cognitive load:
- * 1) Views as scannable chips (overview) — not buried only in a dropdown
- * 2) Traditional multi-field filter form, collapsible (admin habit)
- * 3) Layout / save sit on the right of the same control plane
- *
- * Mental model:
- *   视图 = 已命名的条件快照（一键还原）
- *   筛选 = 当前临时条件（可展开编辑）
- *   布局 = 怎么看（正交）
- */
 export function Toolbar() {
   const views = useViewStore((s) => s.views);
   const activeViewId = useViewStore((s) => s.activeViewId);
@@ -101,6 +93,7 @@ export function Toolbar() {
   const setGroupBy = useViewStore((s) => s.setGroupBy);
   const setSort = useViewStore((s) => s.setSort);
   const toggleFilterValue = useViewStore((s) => s.toggleFilterValue);
+  const setFilterField = useViewStore((s) => s.setFilterField);
   const clearFilters = useViewStore((s) => s.clearFilters);
   const toggleColumn = useViewStore((s) => s.toggleColumn);
   const selectView = useViewStore((s) => s.selectView);
@@ -115,17 +108,73 @@ export function Toolbar() {
   const filteredCount = useFilteredIssues().length;
   const activeFilters = countActiveFilters(draft.filters);
 
-  // Expand filters by default when any filter is active (admin muscle memory)
-  const [filterOpen, setFilterOpen] = useState(() => activeFilters > 0);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [viewQuery, setViewQuery] = useState("");
+  const [assigneeQuery, setAssigneeQuery] = useState("");
 
-  const ordered = [
-    ...views.filter((v) => v.starred),
-    ...views.filter((v) => !v.starred),
-  ];
+  const orderedViews = useMemo(() => {
+    const starred = views.filter((v) => v.starred);
+    const rest = views.filter((v) => !v.starred);
+    return [...starred, ...rest];
+  }, [views]);
+
+  const { pinViews, overflowCount } = useMemo(() => {
+    const pins: typeof orderedViews = [];
+    for (const v of orderedViews) {
+      if (v.starred || v.id === activeViewId || v.isDefault) {
+        if (!pins.some((p) => p.id === v.id) && pins.length < VISIBLE_VIEW_SLOTS) {
+          pins.push(v);
+        }
+      }
+    }
+    // fill remaining slots with other views in order
+    for (const v of orderedViews) {
+      if (pins.length >= VISIBLE_VIEW_SLOTS) break;
+      if (!pins.some((p) => p.id === v.id)) pins.push(v);
+    }
+    // ensure active always shown
+    if (!pins.some((v) => v.id === activeViewId)) {
+      const active = orderedViews.find((v) => v.id === activeViewId);
+      if (active) {
+        pins[pins.length - 1] = active;
+      }
+    }
+    const pinIds = new Set(pins.map((p) => p.id));
+    return {
+      pinViews: pins,
+      overflowCount: orderedViews.filter((v) => !pinIds.has(v.id)).length,
+    };
+  }, [orderedViews, activeViewId]);
+
+  const filteredViewList = useMemo(() => {
+    const q = viewQuery.trim().toLowerCase();
+    if (!q) return orderedViews;
+    return orderedViews.filter(
+      (v) =>
+        v.name.toLowerCase().includes(q) ||
+        (v.description ?? "").toLowerCase().includes(q),
+    );
+  }, [orderedViews, viewQuery]);
+
+  const assigneesSorted = useMemo(() => {
+    const q = assigneeQuery.trim().toLowerCase().replace(/\s+/g, "");
+    return USERS.filter((u) => {
+      if (!q) return true;
+      const py = u.pinyin.replace(/\s+/g, "");
+      return (
+        u.name.includes(assigneeQuery.trim()) ||
+        py.includes(q) ||
+        u.py.includes(q) ||
+        u.initials.includes(q)
+      );
+    });
+  }, [assigneeQuery]);
+
+  const currentUser = USERS.find((u) => u.id === CURRENT_USER_ID)!;
 
   function handleCreate() {
     createView({ name: newName.trim() || "未命名视图", type: draft.type });
@@ -133,124 +182,203 @@ export function Toolbar() {
     setNewName("");
   }
 
+  function summaryLabel(
+    kind: "status" | "assignee" | "priority" | "type" | "label",
+    count: number,
+    empty: string,
+  ) {
+    if (count === 0) return empty;
+    if (count === 1) {
+      if (kind === "status") {
+        const id = draft.filters.statuses[0]!;
+        return STATUSES.find((s) => s.id === id)?.name ?? "1 项";
+      }
+      if (kind === "assignee") {
+        const id = draft.filters.assignees[0]!;
+        if (id === "unassigned") return "未分配";
+        if (id === CURRENT_USER_ID) return `当前用户 · ${currentUser.name}`;
+        return USERS.find((u) => u.id === id)?.name ?? "1 人";
+      }
+      if (kind === "priority") {
+        return PRIORITY_META[draft.filters.priorities[0]!].label;
+      }
+      if (kind === "type") {
+        return TYPE_META[draft.filters.types[0]!].label;
+      }
+      if (kind === "label") return draft.filters.labels[0]!;
+    }
+    return `已选 ${count} 项`;
+  }
+
   return (
     <div className="border-b border-border bg-card">
-      {/* Row A: 视图全览 chips — scannable, low cost */}
-      <div className="flex items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5 sm:px-3">
-        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
-          视图
-        </span>
-        <div
-          className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-          role="tablist"
-          aria-label="筛选视图"
-        >
-          {ordered.map((v) => {
-            const active = v.id === activeViewId;
-            return (
-              <button
-                key={v.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => selectView(v.id)}
-                className={cn(
-                  "inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors",
-                  active
-                    ? "border-primary/30 bg-accent text-accent-foreground"
-                    : "border-transparent bg-secondary/80 text-muted-foreground hover:bg-secondary hover:text-foreground",
-                )}
-              >
-                {v.starred ? (
-                  <Star className="size-3 fill-current text-amber-500" />
-                ) : null}
-                <span className="max-w-[110px] truncate">{v.name}</span>
-                {active && dirty ? (
-                  <span className="size-1.5 rounded-full bg-warning" />
-                ) : null}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
-          >
-            <Plus className="size-3" />
-            另存
-          </button>
-        </div>
+      {/* Unified control row: views + search + filters + layout */}
+      <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 sm:px-3">
+        <span className="shrink-0 text-xs text-muted-foreground">视图</span>
 
-        <DropdownMenu>
+        {pinViews.map((v) => {
+          const active = v.id === activeViewId;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => selectView(v.id)}
+              className={cn(
+                "inline-flex h-7 max-w-[132px] shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                active
+                  ? "border-primary/30 bg-accent text-accent-foreground"
+                  : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
+              )}
+            >
+              {v.starred ? (
+                <Star className="size-3 shrink-0 fill-current text-amber-500" />
+              ) : null}
+              <span className="truncate">{v.name}</span>
+              {active && dirty ? (
+                <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+              ) : null}
+            </button>
+          );
+        })}
+
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (!open) setViewQuery("");
+          }}
+        >
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="size-6 shrink-0" aria-label="视图管理">
-              <MoreHorizontal className="size-3.5" />
+            <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
+              更多
+              {overflowCount > 0 ? (
+                <span className="text-muted-foreground">·{overflowCount}</span>
+              ) : null}
+              <ChevronDown className="size-3.5 opacity-60" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem
-              onClick={() => {
-                setRenameId(activeViewId);
-                setRenameValue(draft.name);
-              }}
-            >
-              <Pencil /> 重命名
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => duplicateView(activeViewId)}>
-              <Copy /> 复制
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => toggleStar(activeViewId)}>
-              <Star /> 星标切换
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setDefaultView(activeViewId)}>
-              <Check /> 设为默认
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => deleteView(activeViewId)}
-            >
-              <Trash2 /> 删除当前
-            </DropdownMenuItem>
+          <DropdownMenuContent align="start" className="w-72 p-0">
+            <div className="border-b border-border p-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={viewQuery}
+                  onChange={(e) => setViewQuery(e.target.value)}
+                  placeholder="搜索视图名称 / 描述…"
+                  className="h-8 pl-7 text-xs"
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+              </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto py-1">
+              {filteredViewList.length === 0 ? (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  无匹配视图
+                </div>
+              ) : (
+                filteredViewList.map((v) => (
+                  <div
+                    key={v.id}
+                    className={cn(
+                      "group flex items-center gap-0.5 px-1",
+                      v.id === activeViewId && "bg-accent/50",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                      onClick={() => selectView(v.id)}
+                    >
+                      <Star
+                        className={cn(
+                          "size-3.5 shrink-0",
+                          v.starred
+                            ? "fill-current text-amber-500"
+                            : "text-muted-foreground/35",
+                        )}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{v.name}</span>
+                        {v.description ? (
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {v.description}
+                          </span>
+                        ) : null}
+                      </span>
+                      {v.isDefault ? (
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          默认
+                        </span>
+                      ) : null}
+                      {v.id === activeViewId ? (
+                        <Check className="size-3.5 shrink-0 text-primary" />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                      title={v.starred ? "取消星标" : "星标"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleStar(v.id);
+                      }}
+                    >
+                      <Star
+                        className={cn(
+                          "size-3.5",
+                          v.starred && "fill-current text-amber-500",
+                        )}
+                      />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="space-y-0.5 border-t border-border p-1">
+              <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                <Plus /> 另存为新视图…
+              </DropdownMenuItem>
+              {dirty ? (
+                <DropdownMenuItem onClick={() => saveDraftToView()}>
+                  <Save /> 更新当前视图
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem onClick={() => duplicateView(activeViewId)}>
+                <Copy /> 复制当前视图
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setRenameId(activeViewId);
+                  setRenameValue(draft.name);
+                }}
+              >
+                <Pencil /> 重命名当前
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDefaultView(activeViewId)}>
+                <Check /> 设为默认
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => deleteView(activeViewId)}
+              >
+                <Trash2 /> 删除当前
+              </DropdownMenuItem>
+            </div>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="hidden h-4 w-px bg-border sm:block" />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 px-2.5 text-xs"
+          onClick={() => setCreateOpen(true)}
+        >
+          <Plus className="size-3.5" />
+          另存
+        </Button>
 
-        <div className="flex items-center rounded border border-border bg-secondary p-px">
-          {layoutModes.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              title={m.label}
-              onClick={() => setViewType(m.id)}
-              className={cn(
-                "inline-flex size-6 items-center justify-center rounded-[3px]",
-                draft.type === m.id
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {m.icon}
-            </button>
-          ))}
-        </div>
+        <div className="mx-0.5 hidden h-4 w-px bg-border sm:block" />
 
-        <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
-          {filteredCount}/{totalCount}
-        </span>
-
-        {dirty ? (
-          <Button size="sm" className="h-6 px-2 text-[11px]" onClick={() => saveDraftToView()}>
-            <Save className="size-3" />
-            更新
-          </Button>
-        ) : null}
-      </div>
-
-      {/* Row B: quick bar — search + toggle traditional filter form */}
-      <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 sm:px-3">
-        <div className="relative min-w-[140px] flex-1 sm:max-w-[220px]">
+        <div className="relative min-w-[120px] flex-1 sm:max-w-[200px]">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={draft.filters.search}
@@ -263,7 +391,7 @@ export function Toolbar() {
         <Button
           variant={filterOpen || activeFilters > 0 ? "secondary" : "outline"}
           size="sm"
-          className="h-7 gap-1 px-2 text-xs"
+          className="h-7 gap-1 px-2.5 text-xs"
           onClick={() => setFilterOpen((o) => !o)}
         >
           <Filter className="size-3.5" />
@@ -282,12 +410,11 @@ export function Toolbar() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
+            <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
               <Layers className="size-3.5" />
               <span className="hidden md:inline">
                 {groupOptions.find((g) => g.id === draft.groupBy)?.label}
               </span>
-              <span className="md:hidden">分组</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -305,12 +432,11 @@ export function Toolbar() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
+            <Button variant="outline" size="sm" className="h-7 gap-1 px-2.5 text-xs">
               <ArrowUpDown className="size-3.5" />
               <span className="hidden md:inline">
                 {sortOptions.find((s) => s.id === draft.sortBy)?.label}
               </span>
-              <span className="md:hidden">排序</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -336,7 +462,7 @@ export function Toolbar() {
         {draft.type === "list" ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
+              <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs">
                 <Columns3 className="size-3.5" />
                 列
               </Button>
@@ -357,113 +483,265 @@ export function Toolbar() {
           </DropdownMenu>
         ) : null}
 
-        {activeFilters > 0 ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => clearFilters()}
-          >
-            <X className="size-3.5" />
-            重置
-          </Button>
-        ) : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
+            {filteredCount}/{totalCount}
+          </span>
+          <div className="flex h-7 items-center rounded-md border border-border bg-secondary p-0.5">
+            {layoutModes.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                title={m.label}
+                onClick={() => setViewType(m.id)}
+                className={cn(
+                  "inline-flex size-6 items-center justify-center rounded-[4px]",
+                  draft.type === m.id
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {m.icon}
+              </button>
+            ))}
+          </div>
+          {dirty ? (
+            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => saveDraftToView()}>
+              <Save className="size-3.5" />
+              更新
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      {/* Row C: traditional filter form — label + multi-select chips per field */}
+      {/* Expandable filter form — 2–3 columns, mixed controls */}
       {filterOpen ? (
-        <div className="space-y-2 border-t border-border/70 bg-secondary/30 px-2.5 py-2 sm:px-3">
-          <FilterField label="状态">
-            {STATUSES.map((s) => (
-              <ToggleChip
-                key={s.id}
-                active={draft.filters.statuses.includes(s.id)}
-                onClick={() => toggleFilterValue("statuses", s.id as StatusId)}
+        <div className="border-t border-border/70 bg-secondary/25 px-2.5 py-2.5 sm:px-3">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-2 xl:grid-cols-3">
+            <Field label="状态">
+              <MultiSelectTrigger
+                summary={summaryLabel("status", draft.filters.statuses.length, "全部状态")}
+                active={draft.filters.statuses.length > 0}
               >
-                <span
-                  className="mr-1 inline-block size-1.5 rounded-full"
-                  style={{ background: s.color }}
-                />
-                {s.name}
-              </ToggleChip>
-            ))}
-          </FilterField>
+                {STATUSES.map((s) => (
+                  <DropdownMenuCheckboxItem
+                    key={s.id}
+                    checked={draft.filters.statuses.includes(s.id)}
+                    onCheckedChange={() =>
+                      toggleFilterValue("statuses", s.id as StatusId)
+                    }
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <span
+                      className="mr-1.5 inline-block size-1.5 rounded-full"
+                      style={{ background: s.color }}
+                    />
+                    {s.name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </MultiSelectTrigger>
+            </Field>
 
-          <FilterField label="经办人">
-            <ToggleChip
-              active={draft.filters.assignees.includes("unassigned")}
-              onClick={() => toggleFilterValue("assignees", "unassigned")}
-            >
-              未分配
-            </ToggleChip>
-            {USERS.map((u) => (
-              <ToggleChip
-                key={u.id}
-                active={draft.filters.assignees.includes(u.id)}
-                onClick={() => toggleFilterValue("assignees", u.id)}
+            <Field label="经办人">
+              <DropdownMenu
+                onOpenChange={(o) => {
+                  if (!o) setAssigneeQuery("");
+                }}
               >
-                {u.name}
-              </ToggleChip>
-            ))}
-          </FilterField>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-7 w-full items-center justify-between gap-1 rounded-md border bg-card px-2.5 text-left text-xs font-medium",
+                      draft.filters.assignees.length > 0
+                        ? "border-primary/30 text-foreground"
+                        : "border-border text-muted-foreground",
+                    )}
+                  >
+                    <span className="truncate">
+                      {summaryLabel(
+                        "assignee",
+                        draft.filters.assignees.length,
+                        "全部经办人",
+                      )}
+                    </span>
+                    <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72 p-0">
+                  <div className="border-b border-border p-2">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={assigneeQuery}
+                        onChange={(e) => setAssigneeQuery(e.target.value)}
+                        placeholder="姓名 / 拼音 / 首字母 csy"
+                        className="h-8 pl-7 text-xs"
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto py-1">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
+                      onClick={() => setFilterField("assignees", [CURRENT_USER_ID])}
+                    >
+                      <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <UserRound className="size-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">当前用户</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          {currentUser.name} · {currentUser.py.toUpperCase()}
+                        </span>
+                      </span>
+                      {draft.filters.assignees.length === 1 &&
+                      draft.filters.assignees[0] === CURRENT_USER_ID ? (
+                        <Check className="size-3.5 text-primary" />
+                      ) : null}
+                    </button>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem
+                      checked={draft.filters.assignees.includes("unassigned")}
+                      onCheckedChange={() =>
+                        toggleFilterValue("assignees", "unassigned")
+                      }
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      未分配
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
+                      按拼音首字母排序 · 支持 py 搜索
+                    </DropdownMenuLabel>
+                    {assigneesSorted.map((u) => (
+                      <DropdownMenuCheckboxItem
+                        key={u.id}
+                        checked={draft.filters.assignees.includes(u.id)}
+                        onCheckedChange={() => toggleFilterValue("assignees", u.id)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        <span
+                          className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                          style={{ background: u.color }}
+                        >
+                          {u.initials}
+                        </span>
+                        <span className="flex-1">{u.name}</span>
+                        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                          {u.py}
+                        </span>
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                    {assigneesSorted.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        无匹配用户
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </Field>
 
-          <FilterField label="优先级">
-            {(Object.keys(PRIORITY_META) as Priority[]).map((p) => (
-              <ToggleChip
-                key={p}
-                active={draft.filters.priorities.includes(p)}
-                onClick={() => toggleFilterValue("priorities", p)}
+            <Field label="优先级">
+              <MultiSelectTrigger
+                summary={summaryLabel(
+                  "priority",
+                  draft.filters.priorities.length,
+                  "全部优先级",
+                )}
+                active={draft.filters.priorities.length > 0}
               >
-                {PRIORITY_META[p].label}
-              </ToggleChip>
-            ))}
-          </FilterField>
+                {(Object.keys(PRIORITY_META) as Priority[]).map((p) => (
+                  <DropdownMenuCheckboxItem
+                    key={p}
+                    checked={draft.filters.priorities.includes(p)}
+                    onCheckedChange={() => toggleFilterValue("priorities", p)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {PRIORITY_META[p].label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </MultiSelectTrigger>
+            </Field>
 
-          <FilterField label="类型">
-            {(Object.keys(TYPE_META) as IssueType[]).map((t) => (
-              <ToggleChip
-                key={t}
-                active={draft.filters.types.includes(t)}
-                onClick={() => toggleFilterValue("types", t)}
+            <Field label="类型">
+              <MultiSelectTrigger
+                summary={summaryLabel("type", draft.filters.types.length, "全部类型")}
+                active={draft.filters.types.length > 0}
               >
-                {TYPE_META[t].label}
-              </ToggleChip>
-            ))}
-          </FilterField>
+                {(Object.keys(TYPE_META) as IssueType[]).map((t) => (
+                  <DropdownMenuCheckboxItem
+                    key={t}
+                    checked={draft.filters.types.includes(t)}
+                    onCheckedChange={() => toggleFilterValue("types", t)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {TYPE_META[t].label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </MultiSelectTrigger>
+            </Field>
 
-          <FilterField label="标签">
-            {ALL_LABELS.map((l) => (
-              <ToggleChip
-                key={l}
-                active={draft.filters.labels.includes(l)}
-                onClick={() => toggleFilterValue("labels", l)}
+            <Field label="标签">
+              <MultiSelectTrigger
+                summary={summaryLabel("label", draft.filters.labels.length, "全部标签")}
+                active={draft.filters.labels.length > 0}
               >
-                {l}
-              </ToggleChip>
-            ))}
-          </FilterField>
+                {ALL_LABELS.map((l) => (
+                  <DropdownMenuCheckboxItem
+                    key={l}
+                    checked={draft.filters.labels.includes(l)}
+                    onCheckedChange={() => toggleFilterValue("labels", l)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {l}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </MultiSelectTrigger>
+            </Field>
 
-          <div className="flex items-center justify-end gap-2 pt-0.5">
+            <Field label="关键字">
+              <Input
+                value={draft.filters.search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索摘要、键值、描述…"
+                className="h-7 text-xs"
+              />
+            </Field>
+          </div>
+
+          <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
             <span className="mr-auto text-[11px] text-muted-foreground">
-              改完后可「更新」当前视图，或「另存」为新视图
+              生效条件显示在下方条带，点 × 可快速移除
             </span>
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 text-[11px]"
+              className="h-7 text-xs"
               onClick={() => setFilterOpen(false)}
             >
               收起
             </Button>
+            {activeFilters > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => clearFilters()}
+              >
+                重置条件
+              </Button>
+            ) : null}
             {dirty ? (
-              <Button size="sm" className="h-6 text-[11px]" onClick={() => saveDraftToView()}>
+              <Button size="sm" className="h-7 text-xs" onClick={() => saveDraftToView()}>
                 更新视图
               </Button>
             ) : null}
             <Button
               variant="outline"
               size="sm"
-              className="h-6 text-[11px]"
+              className="h-7 text-xs"
               onClick={() => setCreateOpen(true)}
             >
               另存为视图
@@ -472,12 +750,77 @@ export function Toolbar() {
         </div>
       ) : null}
 
+      {/* Active filters strip */}
+      {activeFilters > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-2.5 py-1.5 sm:px-3">
+          <span className="text-[11px] font-medium text-muted-foreground">已选</span>
+          {draft.filters.statuses.map((id) => {
+            const s = STATUSES.find((x) => x.id === id)!;
+            return (
+              <ActiveChip
+                key={`st-${id}`}
+                label={`状态: ${s.name}`}
+                onRemove={() => toggleFilterValue("statuses", id)}
+              />
+            );
+          })}
+          {draft.filters.assignees.map((id) => {
+            let name = "未分配";
+            if (id === CURRENT_USER_ID) name = `当前用户(${currentUser.name})`;
+            else if (id !== "unassigned") {
+              name = USERS.find((u) => u.id === id)?.name ?? id;
+            }
+            return (
+              <ActiveChip
+                key={`as-${id}`}
+                label={`经办人: ${name}`}
+                onRemove={() => toggleFilterValue("assignees", id)}
+              />
+            );
+          })}
+          {draft.filters.priorities.map((p) => (
+            <ActiveChip
+              key={`pr-${p}`}
+              label={`优先级: ${PRIORITY_META[p].label}`}
+              onRemove={() => toggleFilterValue("priorities", p)}
+            />
+          ))}
+          {draft.filters.types.map((t) => (
+            <ActiveChip
+              key={`ty-${t}`}
+              label={`类型: ${TYPE_META[t].label}`}
+              onRemove={() => toggleFilterValue("types", t)}
+            />
+          ))}
+          {draft.filters.labels.map((l) => (
+            <ActiveChip
+              key={`lb-${l}`}
+              label={`标签: ${l}`}
+              onRemove={() => toggleFilterValue("labels", l)}
+            />
+          ))}
+          {draft.filters.search.trim() ? (
+            <ActiveChip
+              label={`关键字: ${draft.filters.search}`}
+              onRemove={() => setSearch("")}
+            />
+          ) : null}
+          <button
+            type="button"
+            onClick={() => clearFilters()}
+            className="ml-0.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            全部清除
+          </button>
+        </div>
+      ) : null}
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>另存为筛选视图</DialogTitle>
             <DialogDescription>
-              把当前筛选条件存成命名视图，之后在顶栏一点即可切换，不必重新点选。
+              保存当前筛选条件。之后可从视图条或「更多」中快速切换。
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -533,44 +876,59 @@ export function Toolbar() {
   );
 }
 
-function FilterField({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-start gap-x-2 gap-y-1.5">
-      <div className="w-12 shrink-0 pt-0.5 text-right text-[11px] font-medium text-muted-foreground sm:w-14">
+    <div className="flex min-w-0 items-center gap-2">
+      <label className="w-12 shrink-0 text-right text-xs text-muted-foreground">
         {label}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-wrap gap-1">{children}</div>
+      </label>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }
 
-function ToggleChip({
+function MultiSelectTrigger({
+  summary,
   active,
-  onClick,
   children,
 }: {
+  summary: string;
   active: boolean;
-  onClick: () => void;
   children: ReactNode;
 }) {
   return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-7 w-full items-center justify-between gap-1 rounded-md border bg-card px-2.5 text-left text-xs font-medium",
+            active
+              ? "border-primary/30 text-foreground"
+              : "border-border text-muted-foreground",
+          )}
+        >
+          <span className="truncate">{summary}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-y-auto">
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ActiveChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
     <button
       type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex h-6 items-center rounded border px-2 text-[11px] font-medium transition-colors",
-        active
-          ? "border-primary/35 bg-accent text-accent-foreground"
-          : "border-border bg-card text-muted-foreground hover:border-primary/20 hover:text-foreground",
-      )}
+      onClick={onRemove}
+      className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-secondary px-2 text-[11px] font-medium text-secondary-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+      title="移除该条件"
     >
-      {children}
+      {label}
+      <X className="size-3 opacity-70" />
     </button>
   );
 }
